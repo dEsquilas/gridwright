@@ -72,6 +72,9 @@ function showConfig(c: GridwrightConfig): void {
     const extras = s.alsoExports.length ? ` + ${s.alsoExports.join(', ')}` : ''
     console.log(dim(`    ${s.dir.padEnd(22)} ${s.file}  ${s.export}${extras}  (${s.seenIn})`))
   }
+  if (c.conventions?.breakpoints?.length) {
+    console.log(dim(`    breakpoints: ${c.conventions.breakpoints.map((b) => b.name).join(' ')}`))
+  }
   if (c.conventions?.docs.length) {
     console.log(dim(`    ${c.conventions.docs.length} convention docs found`))
   }

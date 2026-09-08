@@ -103,6 +103,30 @@ with no `node-id` is rejected, and correctly so.
 
 ## Rules that hold at every stage
 
+**A node's `tokens` are a specification, not a hint.** Every value in there was
+measured off the design: `bg`, `type`, `radius`, `shadow`, `border`. Use each
+one, or say why you did not. `resolve` has already matched them to the
+project's own tokens, so the answer to "what colour is this card" is in the run,
+not in your judgment.
+
+This is the failure that has actually happened. A component was written with
+`bg-white` where the IR said `bg: #e0f2f1`, and body text at 16px where the IR
+said 20. Both values were sitting in the IR, both had already been resolved to
+`tertiary-50` and `paragraph-lg`, and the component still scored in the forties
+for two days. Reading the IR for structure and skipping its tokens produces
+something that is shaped right and looks wrong.
+
+**Reusing a project component does not carry the design's styles with it.**
+`ui/Button` is the project's button, not necessarily this design's button.
+Check its result against the node's tokens like anything else.
+
+**Use `conventions.breakpoints`, never Tailwind's defaults.** A project that
+renames its screens has no `md:` or `lg:` — those are not smaller breakpoints,
+they are classes that do not exist, and nothing errors. A component written
+with them lays out as though it had no responsive rules at all. That has
+happened too, in the same component: every `md:flex-row` in it was inert
+because the project's breakpoints are `tablet`, `laptop`, `desktop` and `wide`.
+
 **Read the IR, never the raw Figma tree.** The distilled IR is what `inputs.ir`
 points at. The raw tree is 2,000+ nodes of absolute coordinates; reading it
 makes the output worse, not better — it pulls you toward `position: absolute`.

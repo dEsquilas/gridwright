@@ -38,6 +38,16 @@ export interface ComponentShape {
 export interface Conventions {
   /** Every distinct shape found, most populated first. */
   shapes: ComponentShape[]
+  /**
+   * The responsive prefixes this project actually has.
+   *
+   * Tailwind's defaults are sm/md/lg/xl, and a project that renames them keeps
+   * none of those. santillanafrancais uses tablet/laptop/desktop/wide, so
+   * `md:flex-row` is not a smaller breakpoint — it is a class that does not
+   * exist, silently, with no error anywhere. A component written with it lays
+   * out as though it had no responsive rules at all.
+   */
+  breakpoints: Array<{ name: string; width: string }>
   /** Docs the project keeps about its own conventions. `author` should read
    *  these before writing: they carry the rules no amount of file-shape
    *  inference will find. */
@@ -68,8 +78,28 @@ export function detectConventions(root: string): Conventions {
 
   return {
     shapes: shapes.sort((a, b) => b.seenIn - a.seenIn),
+    breakpoints: findBreakpoints(root),
     docs: findDocs(root),
   }
+}
+
+/** Read from the Tailwind config's `screens`. Empty means the defaults apply. */
+function findBreakpoints(root: string): Array<{ name: string; width: string }> {
+  for (const name of ['tailwind.config.js', 'tailwind.config.ts', 'tailwind.config.cjs', 'tailwind.config.mjs']) {
+    const abs = join(root, name)
+    if (!existsSync(abs)) continue
+    const src = safeRead(abs)
+    if (!src) continue
+
+    const block = src.match(/screens\s*:\s*\{([\s\S]*?)\n\s*\}/)
+    if (!block) return []
+    const out: Array<{ name: string; width: string }> = []
+    for (const m of block[1]!.matchAll(/['"]?([\w-]+)['"]?\s*:\s*['"]([^'"]+)['"]/g)) {
+      out.push({ name: m[1]!, width: m[2]! })
+    }
+    return out
+  }
+  return []
 }
 
 function inferShape(root: string, dir: string): ComponentShape | null {

@@ -36,6 +36,10 @@ export interface GridwrightConfig {
   framework: Framework
   conventions?: {
     shapes: ComponentShape[]
+    /** The responsive prefixes the project has. A component written with
+     *  Tailwind's defaults against a project that renamed them lays out as
+     *  though it had no responsive rules — silently. */
+    breakpoints?: Array<{ name: string; width: string }>
     /** Docs the project keeps about its own rules. `author` reads these first —
      *  they carry what no amount of file-shape inference will find. */
     docs: string[]
