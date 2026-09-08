@@ -106,17 +106,25 @@ export async function runVerify(root: string, args: VerifyArgs): Promise<void> {
   // implementation detail of this command: verify starts its own Vite and tears
   // it down, so a run that reached `harness` and waited for someone to run it
   // separately would wait forever. It did.
+  //
+  // Naming a run with `--run` is asking for that run to be updated, whatever
+  // stage it is on — re-verifying a finished one is how you check a change you
+  // just made, and dropping the result on the floor made the report show the
+  // previous run's numbers.
   const open = args.run ? loadState(root, args.run) : activeRun(root)
-  if (open && (open.stage === 'harness' || open.stage === 'verify')) {
+  const shouldRecord = open && (args.run !== undefined || open.stage === 'harness' || open.stage === 'verify')
+  if (open && shouldRecord) {
     const { artifacts, ...score } = result
     if (open.stage === 'harness') {
       advance(open, 'harness', { status: 'done', output: { startedBy: 'gw verify' } })
     }
-    open.stages.verify.output = { ...open.stages.verify.output, score }
     // The score does not gate the run any more: it is evidence for whoever
     // reviews it, and the pipeline's job is to finish so there is something to
     // review.
-    advance(open, 'verify', { status: 'done', output: { score } })
+    open.stages.verify.output = { ...open.stages.verify.output, score }
+    if (open.stage === 'verify') {
+      advance(open, 'verify', { status: 'done', output: { score } })
+    }
     saveState(root, open)
   }
 

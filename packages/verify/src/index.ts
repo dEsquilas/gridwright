@@ -46,6 +46,28 @@ export interface VerifyResult extends RunScore {
   artifacts: Array<{ viewport: string; screenshot: Buffer; diff?: Buffer }>
 }
 
+/**
+ * The design's own width, added to the viewports if it is not already there.
+ *
+ * A Figma frame is one width. Rendering at three others and comparing all of
+ * them against it produces two measurements with no ground truth behind them —
+ * and the worst-viewport rule then lets those two decide the run. The same
+ * component scored 37% at 1440 and 55% at 1920, and the difference was the
+ * ruler, not the code.
+ *
+ * So the width the design was drawn at always gets rendered. It is the only
+ * one where "does this match?" is a question with an answer.
+ */
+export function withDesignWidth(viewports: Viewport[], designWidth: number): Viewport[] {
+  if (designWidth <= 0) return viewports
+  const width = Math.round(designWidth)
+  // Within 10% is the same layout; a nearer viewport already covers it.
+  if (viewports.some((v) => Math.abs(v.width - width) / width < 0.1)) return viewports
+
+  const tallest = Math.max(...viewports.map((v) => v.height), 900)
+  return [...viewports, { name: 'design', width, height: tallest }]
+}
+
 export async function verify(opts: VerifyOptions): Promise<VerifyResult> {
   const css = opts.css ?? findProjectCss(opts.projectRoot)
   const reference = opts.referencePng && existsSync(opts.referencePng)
@@ -66,7 +88,7 @@ export async function verify(opts: VerifyOptions): Promise<VerifyResult> {
 
   try {
     await withBrowser(async (browser) => {
-      for (const vp of opts.viewports) {
+      for (const vp of withDesignWidth(opts.viewports, opts.measurements.root.width)) {
         const shot = await render(browser, {
           url: harness.url,
           width: vp.width,
