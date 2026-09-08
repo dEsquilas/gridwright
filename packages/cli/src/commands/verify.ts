@@ -13,7 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve as resolvePath } from 'node:path'
 import {
-  loadConfig, paths, resolveCredentials, activeRun, loadState, saveState,
+  loadConfig, paths, resolveCredentials, activeRun, loadState, saveState, advance,
   type Measurements, type GridwrightConfig,
 } from '@gridwright/core'
 import { FigmaClient, FigmaError, parseFigmaUrl, distill } from '@gridwright/figma'
@@ -99,12 +99,24 @@ export async function runVerify(root: string, args: VerifyArgs): Promise<void> {
   console.log(explain(result))
   console.log()
 
-  // Recorded on the run when verify is the stage the run is on, so `refine` has
-  // something to read. A loose calibration run leaves the state untouched.
+  // Recorded on the run, and the run moved on. A loose calibration run — one
+  // with no open run at these stages — leaves the state untouched.
+  //
+  // `harness` is closed here too. It is a stage in the pipeline and an
+  // implementation detail of this command: verify starts its own Vite and tears
+  // it down, so a run that reached `harness` and waited for someone to run it
+  // separately would wait forever. It did.
   const open = args.run ? loadState(root, args.run) : activeRun(root)
-  if (open && open.stage === 'verify') {
+  if (open && (open.stage === 'harness' || open.stage === 'verify')) {
     const { artifacts, ...score } = result
+    if (open.stage === 'harness') {
+      advance(open, 'harness', { status: 'done', output: { startedBy: 'gw verify' } })
+    }
     open.stages.verify.output = { ...open.stages.verify.output, score }
+    // The score does not gate the run any more: it is evidence for whoever
+    // reviews it, and the pipeline's job is to finish so there is something to
+    // review.
+    advance(open, 'verify', { status: 'done', output: { score } })
     saveState(root, open)
   }
 

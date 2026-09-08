@@ -81,9 +81,17 @@ export function runRegister(root: string, args: LibraryArgs): void {
   const before = findByHash(readRegistry(root, config), ir.hash)
   const score = (run.stages.verify.output?.score as { total?: number } | undefined)?.total
 
+  // The name comes from the file that was written, not from the Figma frame.
+  // A frame called "Wrapper full" is the designer's scaffolding; three of them
+  // in one file would all register under the same name, and none of them is
+  // what the component is called in the codebase.
+  const name = componentName(componentPath) ?? run.name
+  const shape = config.conventions?.shapes.find((s) => componentPath.includes(s.dir))
+
   const result = registerComponent(root, config, {
-    name: run.name,
+    name,
     componentPath,
+    ...(shape ? { exportShape: shape.export } : {}),
     figma: { file: ir.source.file, node: ir.source.node, irHash: ir.hash },
     props: propsOf(ir),
     tokens: Object.values(ir.tokens),
@@ -94,7 +102,7 @@ export function runRegister(root: string, args: LibraryArgs): void {
     // Same design hash: this is the same component drawn again, not a new one.
     console.log(`${yellow('↻')} Updated ${bold(before[0])} — run ${result.entry.runs} of this design`)
   } else {
-    ok(`Registered ${bold(run.name)}`)
+    ok(`Registered ${bold(name)}`)
   }
   if (result.barrelLine) console.log(`    ${dim(result.barrelLine)}`)
 
@@ -104,6 +112,15 @@ export function runRegister(root: string, args: LibraryArgs): void {
   })
   saveState(root, run)
   info(`Now on ${green(run.stage)}`)
+}
+
+/** `Card/index.tsx` is Card, `Card.tsx` is Card — the name the codebase uses. */
+function componentName(path: string): string | null {
+  const parts = path.replace(/\\/g, '/').split('/')
+  const file = parts[parts.length - 1] ?? ''
+  const base = file.replace(/\.[^.]+$/, '')
+  const name = base === 'index' ? (parts[parts.length - 2] ?? '') : base
+  return /^[A-Z]/.test(name) ? name : null
 }
 
 /** Slots become props; the Figma copy is their default value. */

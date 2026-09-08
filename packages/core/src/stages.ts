@@ -31,6 +31,25 @@ export type Stage = (typeof STAGES)[number]
  *  not do it. */
 export type Actor = 'code' | 'agent' | 'human'
 
+/**
+ * Which stages stop and ask.
+ *
+ * Originally `plan`, `tokens` and `golden`. Two of those are gone, and the
+ * reason is worth keeping: a gate is for a decision that is expensive to undo,
+ * not for every decision.
+ *
+ * A component is a new file — `git checkout` and it is gone. A plan is a
+ * paragraph. A baseline is a PNG that gets replaced on the next run. None of
+ * those needed a person to stop the pipeline and look, and stopping made the
+ * run end with nothing to look *at*: the whole point is judging a result, and
+ * there is no result until it is built.
+ *
+ * `tokens` stays, because it writes to a file the whole team shares and a badly
+ * named token is inherited rather than reverted. `library:ensure` stays for its
+ * first run only, because creating structure in someone's repo is invasive
+ * exactly once.
+ */
+
 export interface StageSpec {
   id: Stage
   actor: Actor
@@ -75,7 +94,7 @@ export const STAGE_SPECS: Record<Stage, StageSpec> = {
   },
 
   'plan': {
-    id: 'plan', actor: 'agent', gate: true, mandatory: false, phase: 3,
+    id: 'plan', actor: 'agent', gate: false, mandatory: false, phase: 3,
     summary: 'Propose files, props and what gets reused',
   },
   'author': {
@@ -95,8 +114,8 @@ export const STAGE_SPECS: Record<Stage, StageSpec> = {
     summary: 'Fix using the diff focused by dimension',
   },
   'golden': {
-    id: 'golden', actor: 'human', gate: true, mandatory: false, phase: 4,
-    summary: 'Freeze the baseline and write the regression test',
+    id: 'golden', actor: 'code', gate: false, mandatory: false, phase: 4,
+    summary: 'Save the design reference and the regression baseline',
   },
   'library:register': {
     id: 'library:register', actor: 'code', gate: false, mandatory: true, phase: 4,

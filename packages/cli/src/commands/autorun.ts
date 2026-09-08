@@ -21,10 +21,12 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  loadConfig, loadState, paths, STAGE_SPECS, type RunState, type Stage,
+  advance, loadConfig, loadState, paths, saveState, STAGE_SPECS,
+  type RunState, type Stage,
 } from '@gridwright/core'
 import { runResolve, runTokens } from './tokens.js'
-import { runEnsure } from './library.js'
+import { runEnsure, runRegister } from './library.js'
+import { runGolden } from './golden.js'
 import { runSurvey } from './survey.js'
 import { runReport } from './report.js'
 import { dim, info, step, bold, yellow } from '../ui.js'
@@ -75,7 +77,24 @@ const AUTOMATIC: Partial<Record<Stage, (root: string, run: RunState) => void>> =
   tokens: (root, run) => runTokens(root, { run: run.id }),
   'library:ensure': (root, run) => runEnsure(root, { run: run.id, approve: true }),
   survey: (root, run) => runSurvey(root, { run: run.id }),
+  golden: (root, run) => runGolden(root, { run: run.id }),
+  'library:register': (root, run) => runRegister(root, {
+    run: run.id,
+    component: writtenComponent(run),
+  }),
   report: (root, run) => runReport(root, { run: run.id }),
+}
+
+/**
+ * The file `author` reported writing.
+ *
+ * `library:register` used to need it passed by hand, which meant the run
+ * stopped there and a person retyped a path the pipeline already knew. The
+ * stage records what it wrote; this reads it back.
+ */
+function writtenComponent(run: RunState): string | undefined {
+  const file = run.stages.author.output?.file
+  return typeof file === 'string' ? file : undefined
 }
 
 /**
@@ -93,9 +112,15 @@ function missingInput(root: string, run: RunState, stage: Stage): string | null 
       return existsSync(paths.ir(root, run.id)) ? null : 'the IR (re-run `gw build`)'
     case 'harness':
     case 'verify':
-      return 'the component path — nothing has been written yet'
+      // Both are driven by `gw verify --component`, which needs a file to
+      // render. Until `author` has written one there is nothing to measure.
+      return writtenComponent(run)
+        ? 'a render — run `gw verify --component ' + writtenComponent(run) + '`'
+        : 'the component — nothing has been written yet'
     case 'library:register':
-      return 'the component path (`gw library register --component <path>`)'
+      return writtenComponent(run) ? null : 'the component path — `author` did not record what it wrote'
+    case 'golden':
+      return run.stages.verify.output?.score ? null : 'a verification (`gw verify`)'
     default:
       return null
   }
@@ -118,6 +143,26 @@ export function autorun(root: string, run: RunState): StopReason {
         message: `${stage} needs a person to approve it (Law 5).`,
         next: gateCommand(stage),
       }
+    }
+
+    // `refine` is not a step, it is a response.
+    //
+    // It used to sit in the way as an `agent` stage, so a run stopped there and
+    // waited to be told to fix something nobody had looked at yet. The whole
+    // point of finishing the run is that there is a result to judge; refining
+    // before that is refining against a number.
+    //
+    // Skipped with a reason, which keeps it in the history. `gw refine` still
+    // works, and now it works when someone asks for it.
+    if (stage === 'refine') {
+      advance(run, 'refine', {
+        status: 'skipped',
+        reason: 'nothing requested yet — run `gw refine` after reviewing the result',
+      })
+      saveState(root, run)
+      const reloaded = loadState(root, run.id)
+      if (reloaded) Object.assign(run, reloaded)
+      continue
     }
 
     if (spec.actor === 'agent' && !empty) {
@@ -153,13 +198,22 @@ export function autorun(root: string, run: RunState): StopReason {
     // The command advanced the run on disk; the in-memory copy has to follow or
     // this loops forever on a stage that already closed.
     const reloaded = reload(root, run)
+    if (reloaded) Object.assign(run, reloaded)
+
+    // `report` is the last stage, so closing it leaves the pointer where it is.
+    // Checked before treating a stalled pointer as a failure, or a finished run
+    // reports itself as stuck on its own final step.
+    if (run.stages.report.status === 'done') {
+      return {
+        stage: 'report',
+        kind: 'end',
+        message: 'Run complete — the component is written, registered and baselined.',
+        next: 'Open .gridwright/dashboard/index.html to review it.',
+      }
+    }
+
     if (!reloaded || reloaded.stage === before) {
       return { stage, kind: 'needs-input', message: `${stage} did not advance.`, next: stageCommand(stage) }
-    }
-    Object.assign(run, reloaded)
-
-    if (run.stage === 'report' && run.stages.report.status === 'done') {
-      return { stage: 'report', kind: 'end', message: 'The run is complete.', next: 'gw report' }
     }
   }
 }
@@ -168,6 +222,7 @@ export function printStop(stop: StopReason): void {
   console.log()
   if (stop.kind === 'end') {
     info(stop.message)
+    console.log(dim(`  ${stop.next}`))
     return
   }
   const mark = stop.kind === 'agent' ? dim('·') : yellow('!')

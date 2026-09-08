@@ -58,11 +58,23 @@ describe('state machine — Law 1', () => {
     expect(mandatory).toEqual(['tokens', 'library:ensure', 'library:register'])
   })
 
-  it('the human gates are plan, tokens and golden', () => {
+  /**
+   * A gate is for a decision that is expensive to undo, not for every decision.
+   *
+   * `plan` and `golden` used to stop the pipeline, and stopping meant the run
+   * ended with nothing to judge — the point is looking at a result, and there
+   * is no result until it is built. A component is a new file and a baseline is
+   * a PNG; both are one `git checkout` away from gone.
+   *
+   * `tokens` writes to a file the whole team shares, where a badly named token
+   * is inherited rather than reverted. That one still asks.
+   */
+  it('only what is expensive to undo still asks', () => {
     const gates = STAGES.filter((s) => STAGE_SPECS[s].gate)
-    expect(gates).toContain('plan')
     expect(gates).toContain('tokens')
-    expect(gates).toContain('golden')
+    expect(gates).toContain('library:ensure')
+    expect(gates).not.toContain('plan')
+    expect(gates).not.toContain('golden')
   })
 })
 

@@ -78,6 +78,10 @@ export function readRegistry(root: string, config: GridwrightConfig): Registry {
 export interface RegisterInput {
   name: string
   componentPath: string
+  /** How the component exports itself: `default`, or `named:Component`. A
+   *  barrel that re-exports a default from a file that has none breaks the
+   *  build of every consumer, and it does it at import time. */
+  exportShape?: string
   figma: { file: string; node: string; irHash: string }
   props: string[]
   tokens: string[]
@@ -127,7 +131,7 @@ export function registerComponent(
   mkdirSync(dirname(registryPath), { recursive: true })
   writeFileSync(registryPath, JSON.stringify(sortKeys(registry), null, 2) + '\n')
 
-  const barrelLine = addToBarrel(root, config, name, input.componentPath)
+  const barrelLine = addToBarrel(root, config, name, input.componentPath, input.exportShape)
   return {
     entry,
     ...(previous && previous[0] !== input.name ? { updatedExisting: previous[0] } : {}),
@@ -142,6 +146,7 @@ function addToBarrel(
   config: GridwrightConfig,
   name: string,
   componentPath: string,
+  exportShape?: string,
 ): string | undefined {
   const barrel = join(root, config.library.barrel)
   const current = existsSync(barrel) ? readFileSync(barrel, 'utf8') : ''
@@ -155,7 +160,13 @@ function addToBarrel(
 
   if (current.includes(`from '${spec}'`)) return undefined
 
-  const line = `export { default as ${name} } from '${spec}'`
+  // Re-export what the file actually exports. A barrel pulling a default out of
+  // a module that exports a named `Component` fails at import time, in the
+  // consumer, with an error that names neither file.
+  const named = exportShape?.startsWith('named:') ? exportShape.slice('named:'.length) : null
+  const line = named
+    ? `export { ${named} as ${name} } from '${spec}'`
+    : `export { default as ${name} } from '${spec}'`
   writeFileSync(barrel, `${current.trimEnd()}\n${line}\n`)
   return line
 }

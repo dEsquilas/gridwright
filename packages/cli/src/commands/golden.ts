@@ -1,16 +1,21 @@
 /**
- * `gw golden` — stage 12, and the only place the two kinds of verification meet
- * (Law 7).
+ * `gw golden` — stage 12, where both kinds of verification are kept (Law 7).
  *
- * Everything up to here measured **fidelity**: does this look like the design?
- * That question is asked once, against a Figma export, and then it is over —
- * the design will change and the component will carry real data instead of the
- * mockup's copy.
+ * Two images are saved, and calling both of them "the baseline" is the mistake
+ * this file exists to avoid.
  *
- * What gets frozen here is **regression**: a screenshot of the component
- * itself, which answers "did I break it?" and keeps answering it in CI forever.
- * Freezing the Figma export instead would produce a suite that fails every time
- * a designer nudges a frame.
+ * `<Name>.design.png` is Figma's own export: what the component was built
+ * against. It answered "did I build it right?" once, and it is kept because
+ * otherwise there is no record of what was being aimed at — until now it lived
+ * in `runs/`, which is gitignored, and vanished with the run.
+ *
+ * `<Name>.<viewport>.png` is a screenshot of the component itself. That is the
+ * regression baseline, and it is what runs in CI: "this is how it looked when
+ * you accepted it, tell me when it changes."
+ *
+ * They cannot be the same file. A real component carries the CMS's copy rather
+ * than the mockup's lorem, so it will never match Figma pixel for pixel — and a
+ * designer nudging a frame would fail a build nobody touched.
  */
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -50,43 +55,45 @@ export function runGolden(root: string, args: GoldenArgs): void {
     fail('No screenshots to freeze.', 'Run `gw verify` — the baselines come from its renders.')
   }
 
-  if (!args.approve) {
-    console.log(bold(`Freeze ${run.name} as the regression baseline?`))
-    console.log()
-    console.log(`  score    ${score.passed ? green(`${score.total}%`) : yellow(`${score.total}%`)} on ${score.worstViewport}, threshold ${score.threshold}`)
-    console.log(`  baseline ${shots.length} viewport${shots.length === 1 ? '' : 's'} → ${relative(root, paths.baselines(root))}/`)
-    console.log(`  test     ${testPath(config, run.name)}`)
-    console.log()
-
-    if (!score.passed) {
-      // Allowed, but never quietly: a baseline is what every future run is
-      // compared against, so freezing a failing one makes the failure the
-      // standard.
-      warn(`This run is below threshold. Freezing it makes ${score.total}% the new normal.`)
-      console.log(dim('  Everything after this is measured against it, including CI.\n'))
-    }
-
-    warn('This is a human gate (Law 5). Nothing has been written.')
-    console.log(dim('  Approve with: gw golden --approve'))
-    process.exitCode = 1
-    return
-  }
+  // Named after the component, not the Figma frame. Three frames called
+  // "Wrapper full" in one file would otherwise overwrite each other's
+  // baselines, and none of those names is what the component is called.
+  const name = componentName(run) ?? run.name
 
   const dir = paths.baselines(root)
   mkdirSync(dir, { recursive: true })
   const frozen: string[] = []
+
+  // Figma's export, kept alongside the renders. It lived in `runs/` until now,
+  // which is gitignored, so there was no record of what the component was
+  // built against once the run was cleaned up.
+  const reference = paths.reference(root, run.id)
+  if (existsSync(reference)) {
+    const dest = join(dir, `${name}.design.png`)
+    copyFileSync(reference, dest)
+    frozen.push(relative(root, dest))
+  }
+
   for (const s of shots) {
-    const dest = join(dir, `${run.name}-${s.viewport}.png`)
+    const dest = join(dir, `${name}.${s.viewport}.png`)
     copyFileSync(s.file, dest)
     frozen.push(relative(root, dest))
   }
 
-  const test = writeRegressionTest(root, config, run)
+  const test = writeRegressionTest(root, config, run, name)
 
-  ok(`Baseline frozen — ${frozen.length} viewport${frozen.length === 1 ? '' : 's'}`)
-  for (const f of frozen) console.log(`    ${dim('·')} ${f}`)
+  ok(`Saved ${frozen.length} image${frozen.length === 1 ? '' : 's'}`)
+  for (const f of frozen) {
+    const what = f.endsWith('.design.png') ? dim('  ← the design, for reference') : ''
+    console.log(`    ${dim('·')} ${f}${what}`)
+  }
   if (test) console.log(`    ${dim('·')} ${test} ${dim('(new)')}`)
-  console.log(dim('\n  These are committed, unlike runs/ and dashboard/ — they are test code.'))
+  console.log(dim('\n  These are committed, unlike runs/ and verify/ — they are test code.'))
+  if (score && !score.passed) {
+    // Said plainly rather than blocking on it: the number is evidence for
+    // whoever reviews the run, not a verdict that stops one.
+    console.log(dim(`  The render scored ${score.total}% against the design — worth looking at both.`))
+  }
 
   advance(run, 'golden', { status: 'done', output: { baselines: frozen, test } })
   saveState(root, run)
@@ -102,17 +109,32 @@ function testPath(config: GridwrightConfig, name: string): string {
  * because by then it may have assertions nobody wants overwritten by a
  * generator.
  */
-function writeRegressionTest(root: string, config: GridwrightConfig, run: RunState): string | null {
-  const rel = testPath(config, run.name)
+function writeRegressionTest(
+  root: string,
+  config: GridwrightConfig,
+  run: RunState,
+  name: string,
+): string | null {
+  const rel = testPath(config, name)
   const abs = join(root, rel)
   if (existsSync(abs)) return null
 
   mkdirSync(dirname(abs), { recursive: true })
-  writeFileSync(abs, spec(config, run))
+  writeFileSync(abs, spec(config, run, name))
   return rel
 }
 
-function spec(config: GridwrightConfig, run: RunState): string {
+/** The name the codebase uses, taken from the file `author` wrote. */
+function componentName(run: RunState): string | null {
+  const file = run.stages.author.output?.file
+  if (typeof file !== 'string') return null
+  const parts = file.replace(/\\/g, '/').split('/')
+  const base = (parts[parts.length - 1] ?? '').replace(/\.[^.]+$/, '')
+  const derived = base === 'index' ? (parts[parts.length - 2] ?? '') : base
+  return /^[A-Z]/.test(derived) ? derived : null
+}
+
+function spec(config: GridwrightConfig, run: RunState, name: string): string {
   const viewports = config.verify.viewports
     .map((v) => `  { name: '${v.name}', width: ${v.width}, height: ${v.height} },`)
     .join('\n')
@@ -120,7 +142,7 @@ function spec(config: GridwrightConfig, run: RunState): string {
   return `import { test, expect } from '@playwright/test'
 
 /**
- * Regression baseline for ${run.name} — generated by gridwright, then yours.
+ * Regression baseline for ${name} — generated by gridwright, then yours.
  *
  * This asks "did I break it?", not "does it match the design?". Fidelity to
  * Figma was checked once, when the component was built; the design will move on
@@ -135,13 +157,13 @@ ${viewports}
 ]
 
 for (const vp of VIEWPORTS) {
-  test(\`${run.name} at \${vp.name}\`, async ({ page }) => {
+  test(\`${name} at \${vp.name}\`, async ({ page }) => {
     await page.setViewportSize({ width: vp.width, height: vp.height })
     // Point this at wherever the project renders components in isolation.
-    await page.goto('/${run.name}')
+    await page.goto('/${name}')
     await page.evaluate(() => document.fonts.ready)
 
-    await expect(page).toHaveScreenshot(\`${run.name}-\${vp.name}.png\`, {
+    await expect(page).toHaveScreenshot(\`${name}.\${vp.name}.png\`, {
       // Fonts and antialiasing differ between machines; the threshold absorbs
       // that without hiding a real layout change.
       maxDiffPixelRatio: 0.01,
