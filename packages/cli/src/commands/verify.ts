@@ -102,7 +102,8 @@ export async function runVerify(root: string, args: VerifyArgs): Promise<void> {
     return
   }
 
-  const out = join(root, '.gridwright', 'verify')
+  // Into the run when there is one, so its evidence survives the next run.
+  const out = open ? paths.runVerify(root, open.id) : paths.verify(root)
   mkdirSync(out, { recursive: true })
   for (const a of result.artifacts) {
     writeFileSync(join(out, `${a.viewport}.png`), a.screenshot)
@@ -186,7 +187,7 @@ async function designFromFigma(root: string, config: GridwrightConfig, url: stri
     warn(`${ir.warnings.filter((w) => w.severity === 'error').length} layout warnings — the structural score may be misleading.`)
   }
 
-  const dir = join(root, '.gridwright', 'verify')
+  const dir = paths.verify(root)
   mkdirSync(dir, { recursive: true })
   const referencePath = join(dir, 'reference.png')
   const urls = await client.imageUrls(ref.fileKey, [ref.nodeId], { scale: 2 })

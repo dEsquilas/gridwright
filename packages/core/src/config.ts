@@ -40,6 +40,11 @@ export interface GridwrightConfig {
      *  Tailwind's defaults against a project that renamed them lays out as
      *  though it had no responsive rules — silently. */
     breakpoints?: Array<{ name: string; width: string }>
+    /** The extension this project puts on a relative import, '' for none.
+     *  Under `moduleResolution: node16` a bare specifier does not compile, and
+     *  the barrel gridwright writes has to obey the same rule as the files
+     *  around it. */
+    importExtension?: string
     /** Docs the project keeps about its own rules. `author` reads these first —
      *  they carry what no amount of file-shape inference will find. */
     docs: string[]

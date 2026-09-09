@@ -151,12 +151,16 @@ function addToBarrel(
   const barrel = join(root, config.library.barrel)
   const current = existsSync(barrel) ? readFileSync(barrel, 'utf8') : ''
 
+  const ext = config.conventions?.importExtension ?? ''
+
   let spec = relative(dirname(barrel), componentPath).replace(/\\/g, '/')
   spec = spec.replace(new RegExp(`${extname(spec)}$`), '')
-  // An index file is imported by its directory, which is how the rest of a
-  // codebase would write it.
-  spec = spec.replace(/\/index$/, '')
+  // An index file is imported by its directory — but only where a bare
+  // specifier compiles. Under `moduleResolution: node16` a directory is not
+  // resolvable and the extension is mandatory, so the path stays complete.
+  if (ext === '') spec = spec.replace(/\/index$/, '')
   if (!spec.startsWith('.')) spec = `./${spec}`
+  spec += ext
 
   if (current.includes(`from '${spec}'`)) return undefined
 

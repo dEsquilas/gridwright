@@ -48,6 +48,18 @@ export interface Conventions {
    * out as though it had no responsive rules at all.
    */
   breakpoints: Array<{ name: string; width: string }>
+  /**
+   * The extension this project puts on a relative import, or '' for none.
+   *
+   * Not a style question. Under `moduleResolution: node16` a bare
+   * `from '../modules/NewsletterBanner'` is a compile error, and the barrel
+   * gridwright generated broke the typecheck of the repo it was written into —
+   * a file the tool added, failing the build, on a project whose every other
+   * import already showed the answer.
+   *
+   * Inferred by looking, like everything else here.
+   */
+  importExtension: string
   /** Docs the project keeps about its own conventions. `author` should read
    *  these before writing: they carry the rules no amount of file-shape
    *  inference will find. */
@@ -76,11 +88,50 @@ export function detectConventions(root: string): Conventions {
     if (shape && shape.seenIn >= 1) shapes.push(shape)
   }
 
+  const sorted = shapes.sort((a, b) => b.seenIn - a.seenIn)
   return {
-    shapes: shapes.sort((a, b) => b.seenIn - a.seenIn),
+    shapes: sorted,
     breakpoints: findBreakpoints(root),
+    importExtension: detectImportExtension(root, sorted),
     docs: findDocs(root),
   }
+}
+
+/**
+ * What the project's own relative imports look like.
+ *
+ * Counts them rather than reading tsconfig: `moduleResolution` is routinely
+ * inherited from an extended base three directories up, and the files
+ * themselves cannot be wrong about what compiles.
+ */
+function detectImportExtension(root: string, shapes: ComponentShape[]): string {
+  const counts = new Map<string, number>()
+  let total = 0
+
+  for (const shape of shapes.slice(0, 3)) {
+    for (const file of componentFiles(join(root, shape.dir)).slice(0, 40)) {
+      const source = safeRead(file)
+      if (!source) continue
+      for (const m of source.matchAll(/from\s+'(\.[^']*)'/g)) {
+        total++
+        const ext = m[1]!.match(/\.[a-z]+$/)?.[0] ?? ''
+        counts.set(ext, (counts.get(ext) ?? 0) + 1)
+      }
+    }
+  }
+
+  if (total === 0) return ''
+  const bare = counts.get('') ?? 0
+  // A minority writing one is someone's habit; a majority is the rule.
+  if (bare * 2 >= total) return ''
+  let best = ''
+  let most = 0
+  for (const [ext, n] of counts) {
+    if (ext && n > most) { best = ext; most = n }
+  }
+  // Source extensions are what TypeScript rejects in an ESM import specifier;
+  // '.js' is what it wants even when the file on disk is '.tsx'.
+  return best === '.ts' || best === '.tsx' ? '.js' : best
 }
 
 /** Read from the Tailwind config's `screens`. Empty means the defaults apply. */

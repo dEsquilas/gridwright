@@ -48,7 +48,7 @@ export function runGolden(root: string, args: GoldenArgs): void {
   }
 
   const shots = config.verify.viewports
-    .map((v) => ({ viewport: v.name, file: join(root, '.gridwright', 'verify', `${v.name}.png`) }))
+    .map((v) => ({ viewport: v.name, file: shotFor(root, run.id, v.name) }))
     .filter((s) => existsSync(s.file))
 
   if (shots.length === 0) {
@@ -88,6 +88,11 @@ export function runGolden(root: string, args: GoldenArgs): void {
     console.log(`    ${dim('·')} ${f}${what}`)
   }
   if (test) console.log(`    ${dim('·')} ${test} ${dim('(new)')}`)
+  else if (!hasPlaywright(root)) {
+    console.log(dim(`\n  No regression spec written: this project does not have @playwright/test.`))
+    console.log(dim(`  The baselines above are what the test compares against. To turn them into one:`))
+    console.log(dim(`    pnpm add -D @playwright/test  &&  gw golden`))
+  }
   console.log(dim('\n  These are committed, unlike runs/ and verify/ — they are test code.'))
   if (score && !score.passed) {
     // Said plainly rather than blocking on it: the number is evidence for
@@ -120,6 +125,13 @@ function testPath(config: GridwrightConfig, name: string): string {
  * Writes a Playwright spec — once. If one already exists it is left alone,
  * because by then it may have assertions nobody wants overwritten by a
  * generator.
+ *
+ * And not at all when the project does not have Playwright. The spec landed in
+ * a directory the tsconfig compiles, importing a package that was not
+ * installed, and broke the typecheck of the repo it was written into. A tool
+ * that adds a file which fails the build has done something worse than nothing
+ * — the baselines are still frozen and still useful, and the person is told
+ * the one command that makes the test real.
  */
 function writeRegressionTest(
   root: string,
@@ -130,10 +142,34 @@ function writeRegressionTest(
   const rel = testPath(config, name)
   const abs = join(root, rel)
   if (existsSync(abs)) return null
+  if (!hasPlaywright(root)) return null
 
   mkdirSync(dirname(abs), { recursive: true })
   writeFileSync(abs, spec(config, run, name))
   return rel
+}
+
+/** Walks up to the repo root: a nested frontend usually declares its dev
+ *  dependencies where the lockfile is, not beside its components. */
+function hasPlaywright(root: string): boolean {
+  let dir = root
+  for (let up = 0; up < 6; up++) {
+    const pkg = join(dir, 'package.json')
+    if (existsSync(pkg)) {
+      try {
+        const json = JSON.parse(readFileSync(pkg, 'utf8')) as Record<string, Record<string, string>>
+        const deps = { ...json.dependencies, ...json.devDependencies }
+        if (deps['@playwright/test']) return true
+      } catch {
+        // A package.json we cannot read tells us nothing either way.
+      }
+    }
+    if (existsSync(join(dir, '.git'))) break
+    const parent = dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return false
 }
 
 /** The name the codebase uses, taken from the file `author` wrote. */
@@ -144,6 +180,13 @@ function componentName(run: RunState): string | null {
   const base = (parts[parts.length - 1] ?? '').replace(/\.[^.]+$/, '')
   const derived = base === 'index' ? (parts[parts.length - 2] ?? '') : base
   return /^[A-Z]/.test(derived) ? derived : null
+}
+
+/** The run's own screenshot, falling back to the shared directory for runs
+ *  taken before each one kept its evidence. */
+function shotFor(root: string, runId: string, viewport: string): string {
+  const own = join(paths.runVerify(root, runId), `${viewport}.png`)
+  return existsSync(own) ? own : join(paths.verify(root), `${viewport}.png`)
 }
 
 function spec(config: GridwrightConfig, run: RunState, name: string): string {

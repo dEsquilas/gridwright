@@ -35,11 +35,31 @@ export function runReport(root: string, args: ReportArgs): void {
 
   const dir = paths.dashboard(root)
   mkdirSync(dir, { recursive: true })
+  const all = listRuns(root)
+
+  // Every run that has been measured gets its own page, so the switcher has
+  // somewhere to go. They are regenerated together because the switcher on an
+  // older page has to know about the newer ones — a link written yesterday
+  // cannot point at a run that did not exist yet.
+  //
+  // Cheap enough: a page is state plus a handful of PNGs, and the whole
+  // directory is scaffolding. Capped anyway, because a project with two
+  // hundred runs does not want two hundred pages rewritten to look at one.
+  const measured = all.filter((r) => r.stages.verify.output?.score).slice(0, 24)
+  const pages = measured.some((r) => r.id === run.id) ? measured : [run, ...measured]
+  for (const r of pages) {
+    writeFileSync(paths.dashboardPage(root, r.id), page(root, config, r, all))
+  }
+
+  // `index.html` stays the entry point, and is the run just reported on.
   const out = join(dir, 'index.html')
-  writeFileSync(out, page(root, config, run, listRuns(root)))
+  writeFileSync(out, page(root, config, run, all))
 
   ok(`Dashboard written to ${out}`)
   console.log(dim('  Side by side, drag to compare, and the diff — the design is in there now.'))
+  if (pages.length > 1) {
+    console.log(dim(`  ${pages.length} runs in the switcher at the top.`))
+  }
 
   // The flag existed and did nothing: it was declared, parsed, and never read,
   // so `gw report --open` printed a path and left you to find it yourself.
@@ -97,8 +117,8 @@ function page(root: string, config: GridwrightConfig, run: RunState, all: RunSta
     name: v.viewport,
     width: v.width,
     total: v.total,
-    render: inlineImage(join(root, '.gridwright', 'verify', `${v.viewport}.png`)),
-    diff: inlineImage(join(root, '.gridwright', 'verify', `${v.viewport}-diff.png`)),
+    render: shot(root, run.id, `${v.viewport}.png`),
+    diff: shot(root, run.id, `${v.viewport}-diff.png`),
     // Within 10%: a 1440 render against a 1440 frame is the same layout, a
     // 375 render against it is a different one.
     hasReference: designWidth > 0 && Math.abs(v.width - designWidth) / designWidth < 0.1,
@@ -128,6 +148,15 @@ function page(root: string, config: GridwrightConfig, run: RunState, all: RunSta
   .seg button.on { background:var(--ink); color:#fff; }
   .seg button[disabled] { opacity:.4; cursor:not-allowed; }
   .grow { flex:1; }
+
+  .runs { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 20px; padding-bottom:14px;
+          border-bottom:1px solid var(--line); }
+  .runs a { display:inline-flex; align-items:baseline; gap:7px; text-decoration:none;
+            padding:6px 11px; border:1px solid var(--line); border-radius:7px;
+            background:var(--panel); color:var(--muted); font-size:13px; }
+  .runs a:hover { border-color:var(--muted); color:var(--ink); }
+  .runs a.on { background:var(--ink); border-color:var(--ink); color:#fff; }
+  .runs a span { font-size:11.5px; opacity:.7; font-variant-numeric:tabular-nums; }
 
   .stage { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
   .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
@@ -169,6 +198,7 @@ function page(root: string, config: GridwrightConfig, run: RunState, all: RunSta
   .muted { color:var(--muted); }
 </style></head><body><main>
 
+${switcher(run, all)}
 <h1>${esc(component)}</h1>
 <div class="sub">run <code>${esc(run.id)}</code> · node <code>${esc(run.source.nodeId)}</code>${
   designWidth ? ` · design is ${Math.round(designWidth)}px wide` : ''}</div>
@@ -323,6 +353,42 @@ function tokensSection(resolutions: Resolution[]): string {
 </details>`
 }
 
+/**
+ * Links to every other run that has a page.
+ *
+ * The dashboard was one file, overwritten on every run, with the other runs
+ * listed in a history table as text. So the only component you could look at
+ * was the last one built — in a project with fifty of them, that is not a
+ * dashboard, it is a receipt.
+ *
+ * Ordinary links rather than a script: these are sibling files, and `file://`
+ * navigates between them without a server, which is the whole reason the
+ * images are inlined in the first place.
+ *
+ * Grouped by component, most recently built first, because that is how someone
+ * looks for one: by what it is called, not by the id of the run that made it.
+ */
+function switcher(current: RunState, all: RunState[]): string {
+  const withScore = all.filter((r) => r.stages.verify.output?.score)
+  if (withScore.length < 2) return ''
+
+  const seen = new Set<string>()
+  const items = withScore.map((r) => {
+    const name = componentName(r)
+    // Older runs of the same component stay reachable, but the name is only
+    // spelled out once: after that they are the run id.
+    const label = seen.has(name) ? r.id : name
+    seen.add(name)
+    const score = (r.stages.verify.output?.score as RunScore | undefined)
+    const best = score?.viewports.find((v) => v.viewport === 'design') ?? null
+    const pct = best ? `${Math.round(best.total)}%` : score ? `${Math.round(score.total)}%` : ''
+    const on = r.id === current.id ? ' class="on"' : ''
+    return `<a href="${esc(r.id)}.html"${on}>${esc(label)}<span>${esc(pct)}</span></a>`
+  })
+
+  return `<nav class="runs">${items.join('')}</nav>`
+}
+
 function detailsSection(ir: IR | null, run: RunState, all: RunState[]): string {
   const stages = Object.entries(run.stages)
     .filter(([, s]) => s.status !== 'pending')
@@ -349,6 +415,13 @@ function detailsSection(ir: IR | null, run: RunState, all: RunState[]): string {
 <details><summary>Stages</summary><table>${stages}</table></details>
 ${ir ? `<details><summary>The IR</summary><pre>${esc(JSON.stringify(ir, null, 2))}</pre></details>` : ''}
 ${history}`
+}
+
+/** A run's screenshot, falling back to the shared directory for runs taken
+ *  before each one kept its own evidence. */
+function shot(root: string, runId: string, file: string): string | null {
+  return inlineImage(join(paths.runVerify(root, runId), file))
+    ?? inlineImage(join(paths.verify(root), file))
 }
 
 /** Figma's export: from the frozen baseline first, then from the run. */

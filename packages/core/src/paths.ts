@@ -29,10 +29,20 @@ export const paths = {
   // baselines lives outside runs/ precisely because it outlives the run
   baselines: (r: string) => join(r, GW_DIR, 'baselines'),
   dashboard: (r: string) => join(r, GW_DIR, 'dashboard'),
-  /** Screenshots and diffs from the last `gw verify`. Scaffolding: they are
-   *  replaced on every run, and the ones worth keeping are copied to
-   *  `baselines/` by `golden`. */
+  /** Screenshots and diffs from the last `gw verify` outside a run — a loose
+   *  calibration against a Figma URL, which belongs to no run. */
   verify: (r: string) => join(r, GW_DIR, 'verify'),
+  /**
+   * A run's own screenshots and diffs.
+   *
+   * They used to share one directory, so every run overwrote the last one's
+   * evidence: the dashboard could only ever show the newest, and looking back
+   * at what a change actually did was impossible. A run's pictures belong to
+   * the run, like its IR and its measurements.
+   */
+  runVerify: (r: string, id: string) => join(r, GW_DIR, 'runs', id, 'verify'),
+  /** One page per run, so they can be navigated rather than overwritten. */
+  dashboardPage: (r: string, id: string) => join(r, GW_DIR, 'dashboard', `${id}.html`),
 }
 
 /**
