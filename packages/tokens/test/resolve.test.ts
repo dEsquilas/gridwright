@@ -5,6 +5,7 @@ import { readTailwindConfig } from '../src/read.js'
 import { resolveTokens, summarize, overBudget, toPx } from '../src/resolve.js'
 import { withDefaults, isFrameworkDefault } from '../src/defaults.js'
 import { sameShadow, parseShadow } from '../src/shadow.js'
+import type { ExistingToken } from '../src/read.js'
 import type { RawToken } from '@gridwright/core'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -70,6 +71,23 @@ describe('the three buckets — Law 4', () => {
     const r = resolve1(raw('typography', 'Inter/700/48px/56px'))
     expect(r.bucket).toBe('exact')
     expect(r.note).toMatch(/would duplicate/)
+  })
+
+  // Two tokens at the same size are not interchangeable. This project has `h6`
+  // at 20/24/700 and `paragraph-lg` at 20/24/400; resolving on size alone took
+  // whichever the config declared first, so body copy measured at weight 400
+  // resolved to the bold one — and the note is what an agent reads to pick a
+  // class, so the component came out with a bold paragraph.
+  it('picks between same-size tokens on line height and weight', () => {
+    const scale: ExistingToken[] = [
+      { name: 'fontSize.h6', kind: 'typography', value: '1.25rem', comparable: true, source: 't', lineHeight: '1.5rem', fontWeight: '700' },
+      { name: 'fontSize.paragraph-lg', kind: 'typography', value: '1.25rem', comparable: true, source: 't', lineHeight: '1.5rem', fontWeight: '400' },
+    ]
+    const body = resolveTokens([raw('typography', 'Roboto/400/20px/24px')], scale, OPTS)[0]!
+    expect(body.match?.name).toBe('fontSize.paragraph-lg')
+
+    const heading = resolveTokens([raw('typography', 'Roboto/700/20px/24px')], scale, OPTS)[0]!
+    expect(heading.match?.name).toBe('fontSize.h6')
   })
 
   it('a genuinely new size is still new', () => {

@@ -48,7 +48,7 @@ function resolveOne(raw: RawToken, existing: ExistingToken[], opts: ResolveOptio
   if (raw.kind === 'color') return resolveColor(raw, candidates, opts)
   if (raw.kind === 'spacing' || raw.kind === 'radius') return resolveLength(raw, candidates, opts)
   if (raw.kind === 'border') return resolveComposite(raw, existing, opts, borderParts(raw.value))
-  if (raw.kind === 'typography') return resolveComposite(raw, existing, opts, typographyParts(raw.value))
+  if (raw.kind === 'typography') return resolveTypography(raw, candidates, existing, opts)
   if (raw.kind === 'gradient') return resolveComposite(raw, existing, opts, gradientParts(raw.value))
   if (raw.kind === 'shadow') {
     // Compared as painted layers rather than as text: the same stack is written
@@ -153,6 +153,64 @@ function gradientParts(value: string): Part[] {
  * height, family lives in fontFamily and weight is a utility — treating the
  * four as one value is what made every heading look like a new token.
  */
+/**
+ * `Roboto/400/20px/24px` against the project's type scale.
+ *
+ * Size alone is not an identity. This project has `h6` at 20/24/700 and
+ * `paragraph-lg` at 20/24/400, and matching on size took whichever the config
+ * declared first — so body copy measured off the design at weight 400 resolved
+ * to the bold one. The note is what an agent reads to pick a class, so the
+ * wrong winner there is a bold paragraph in the component, and nothing
+ * downstream calls it out: the geometry is close enough to score well.
+ *
+ * Family is deliberately not matched. A design names the face, a Tailwind
+ * `fontSize` entry does not carry one, and the project has already decided
+ * what its sans is.
+ */
+function resolveTypography(
+  raw: RawToken,
+  candidates: ExistingToken[],
+  existing: ExistingToken[],
+  opts: ResolveOptions,
+): Resolution {
+  const [, weight, size, lineHeight] = raw.value.split('/')
+  if (!size) return resolveComposite(raw, existing, opts, [])
+
+  const sized = candidates.filter((c) => toPx(c.value) !== null && toPx(c.value) === toPx(size))
+  if (sized.length === 0) {
+    return resolveComposite(raw, existing, opts, [{ label: 'size', kind: 'typography', value: size }])
+  }
+
+  // Line height first: it is the one that moves the box, and a wrong one shows
+  // up as every element below it sitting in the wrong place.
+  const score = (c: ExistingToken) =>
+    (lineHeight && c.lineHeight && toPx(c.lineHeight) === toPx(lineHeight) ? 2 : 0) +
+    (weight && c.fontWeight && c.fontWeight === weight.trim() ? 1 : 0)
+
+  const best = sized.reduce((a, b) => (score(b) > score(a) ? b : a))
+
+  // A token that declares nothing about weight is not disagreeing about it —
+  // a Tailwind `fontSize` entry is allowed to be only a size and a line
+  // height. Only a value that differs is a mismatch worth flagging.
+  const contradicts =
+    (!!lineHeight && !!best.lineHeight && toPx(best.lineHeight) !== toPx(lineHeight)) ||
+    (!!weight && !!best.fontWeight && best.fontWeight !== weight.trim())
+  const full = !contradicts
+
+  return {
+    bucket: 'exact',
+    raw,
+    // No match on the composite itself: a token for the whole triple would
+    // duplicate a scale the project already has.
+    note: full
+      ? `already expressible: size ${size}, line height ${lineHeight}, weight ${weight} → ${best.name}. A composite token would duplicate them.`
+      : `closest is ${best.name} (${best.value}${best.lineHeight ? `/${best.lineHeight}` : ''}` +
+        `${best.fontWeight ? `/${best.fontWeight}` : ''}); the design asks for ${size}/${lineHeight}/${weight}. ` +
+        `Check it before using it.`,
+    ...(full ? { match: best } : {}),
+  }
+}
+
 function typographyParts(value: string): Part[] {
   const bits = value.split('/')
   if (bits.length < 3) return []

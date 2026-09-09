@@ -28,6 +28,18 @@ export interface ExistingToken {
   /** A literal we can compare against, or a computed expression we cannot. */
   comparable: boolean
   source: string
+  /**
+   * The rest of a `fontSize` entry, when the project writes it as
+   * `['1.25rem', { lineHeight: '1.5rem', fontWeight: '400' }]`.
+   *
+   * Discarded before, and the size alone is not enough to tell two tokens
+   * apart: this project has `h6` at 20/24/700 and `paragraph-lg` at 20/24/400.
+   * Matching on size picked whichever came first, so body copy measured off
+   * the design at weight 400 resolved to the bold one — and an agent reading
+   * that note writes `text-h6` and gets a bold paragraph.
+   */
+  lineHeight?: string
+  fontWeight?: string
 }
 
 export interface TokenSystem {
@@ -194,9 +206,24 @@ function collect(
   }
 
   if (node.isKind?.(SyntaxKind.ArrayLiteralExpression)) {
-    // fontSize entries are ['1rem', { lineHeight: '1.5rem' }] — the size is what matters.
-    const first = node.getElements?.()[0]
-    if (first) collect(first, path, kind, out, source, literals)
+    // fontSize entries are ['1rem', { lineHeight: '1.5rem', fontWeight: '400' }].
+    // The size is the value; the rest is what tells two same-size tokens apart.
+    const [first, second] = node.getElements?.() ?? []
+    if (!first) return
+    const before = out.length
+    collect(first, path, kind, out, source, literals)
+    const added = out[before]
+    if (added && second?.isKind?.(SyntaxKind.ObjectLiteralExpression)) {
+      const read = (name: string): string | undefined => {
+        const prop = (second as ObjectLiteralExpression).getProperty?.(name)
+        const text = prop?.getLastChildByKind?.(SyntaxKind.StringLiteral)?.getLiteralText?.()
+        return text || undefined
+      }
+      const lineHeight = read('lineHeight')
+      const fontWeight = read('fontWeight')
+      if (lineHeight) added.lineHeight = lineHeight
+      if (fontWeight) added.fontWeight = fontWeight
+    }
     return
   }
 
