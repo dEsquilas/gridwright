@@ -13,8 +13,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve as resolvePath } from 'node:path'
 import {
-  loadConfig, paths, resolveCredentials, activeRun, loadState, saveState, advance,
-  type Measurements, type GridwrightConfig,
+  loadConfig, paths, resolveCredentials, activeRun, listRuns, loadState, saveState, advance,
+  type Measurements, type GridwrightConfig, type RunState,
 } from '@gridwright/core'
 import { FigmaClient, FigmaError, parseFigmaUrl, distill } from '@gridwright/figma'
 import { verify, explain } from '@gridwright/verify'
@@ -37,7 +37,12 @@ export async function runVerify(root: string, args: VerifyArgs): Promise<void> {
   // actor that knows either. `verify` used to demand both on the command line,
   // which meant the stage could not run as part of the pipeline at all: an
   // agent that had just written the file had to hand it back by hand.
-  const open = args.run ? loadState(root, args.run) : activeRun(root)
+  // The named run, then the one still in progress, then the most recent —
+  // which is what `report` already does. `activeRun` returns nothing once a run
+  // has finished, and "I changed the component, check it again" is the most
+  // common thing anyone does next; making that ask for a run id was asking for
+  // something the tool knows.
+  const open = args.run ? loadState(root, args.run) : (activeRun(root) ?? listRuns(root)[0] ?? null)
   const authored = open?.stages.author.output
   const componentArg = args.component ?? (typeof authored?.file === 'string' ? authored.file : undefined)
 
@@ -55,7 +60,7 @@ export async function runVerify(root: string, args: VerifyArgs): Promise<void> {
 
   const design = args.figma
     ? await designFromFigma(root, config, args.figma)
-    : designFromRun(root, args.run)
+    : designFromRun(root, open)
 
   const props = args.props ? parseProps(args.props) : authoredProps(authored)
 
@@ -115,13 +120,19 @@ export async function runVerify(root: string, args: VerifyArgs): Promise<void> {
   // implementation detail of this command: verify starts its own Vite and tears
   // it down, so a run that reached `harness` and waited for someone to run it
   // separately would wait forever. It did.
+  // Any open run gets the score, whatever stage it is on. Recording only at
+  // `harness` and `verify` was the same mistake twice: re-verifying after a fix
+  // is the normal thing to do — it is what `refine` is for — and once the run
+  // had moved past those two the result was dropped on the floor. The dashboard
+  // then showed fresh screenshots beside the previous run's numbers, which is
+  // worse than showing nothing: the pictures said 90 and the figure said 80.
   //
-  // Naming a run with `--run` is asking for that run to be updated, whatever
-  // stage it is on — re-verifying a finished one is how you check a change you
-  // just made, and dropping the result on the floor made the report show the
-  // previous run's numbers.
-  const shouldRecord = open && (args.run !== undefined || open.stage === 'harness' || open.stage === 'verify')
-  if (open && shouldRecord) {
+  // The stage still decides whether the run *advances*. Only whether it records
+  // has changed.
+  //
+  // A component verified against a Figma URL with no run open leaves the state
+  // untouched — that is a loose calibration, not a step in building anything.
+  if (open) {
     const { artifacts, ...score } = result
     if (open.stage === 'harness') {
       advance(open, 'harness', { status: 'done', output: { startedBy: 'gw verify' } })
@@ -187,8 +198,7 @@ async function designFromFigma(root: string, config: GridwrightConfig, url: stri
   return { measurements }
 }
 
-function designFromRun(root: string, id?: string): Design {
-  const run = id ? loadState(root, id) : activeRun(root)
+function designFromRun(root: string, run: RunState | null): Design {
   if (!run) {
     fail(
       'No design to compare against.',
