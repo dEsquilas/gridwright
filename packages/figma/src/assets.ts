@@ -106,7 +106,11 @@ export async function extractAssets(
   for (const format of ['png', 'svg'] as const) {
     const ids = targets.filter((t) => t.format === format).map((t) => t.id)
     if (ids.length === 0) continue
-    for (const [id, url] of await client.imageUrls(source.fileKey, ids, { format, scale: opts.scale ?? 2 })) {
+    // Scale is meaningless for a vector, and Figma applies it anyway: a 116x104
+    // node came back as an SVG declaring width="232", so anything rendering it
+    // at its intrinsic size drew it twice too big.
+    const scale = format === 'svg' ? 1 : (opts.scale ?? 2)
+    for (const [id, url] of await client.imageUrls(source.fileKey, ids, { format, scale })) {
       urls.set(id, url)
     }
   }

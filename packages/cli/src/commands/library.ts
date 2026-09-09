@@ -65,13 +65,20 @@ export function runEnsure(root: string, args: LibraryArgs): void {
 export function runRegister(root: string, args: LibraryArgs): void {
   const { run, config } = context(root, args.run)
 
-  if (!args.component) {
+  // The file `author` wrote, when there is one. Demanding the flag inside a run
+  // meant `library:register` — a stage that cannot be skipped, because it is
+  // what makes a run add to the design system — could not run as part of the
+  // pipeline at all.
+  const authored = run.stages.author.output?.file
+  const given = args.component ?? (typeof authored === 'string' ? authored : undefined)
+  if (!given) {
     fail(
       'Which component? Pass --component.',
-      'gw library register --component src/components/ui/HeroBanner/index.tsx',
+      'gw library register --component src/components/ui/HeroBanner/index.tsx\n\n' +
+        'Inside a run it is taken from what `author` recorded.',
     )
   }
-  const componentPath = isAbsolute(args.component) ? args.component : resolvePath(root, args.component)
+  const componentPath = isAbsolute(given) ? given : resolvePath(root, given)
   if (!existsSync(componentPath)) fail(`No such component: ${componentPath}`)
 
   const irPath = paths.ir(root, run.id)

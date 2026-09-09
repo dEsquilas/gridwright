@@ -92,7 +92,19 @@ export function runGolden(root: string, args: GoldenArgs): void {
   if (score && !score.passed) {
     // Said plainly rather than blocking on it: the number is evidence for
     // whoever reviews the run, not a verdict that stops one.
-    console.log(dim(`  The render scored ${score.total}% against the design — worth looking at both.`))
+    //
+    // And said at the width the design was drawn at, when there is one. The
+    // worst viewport is the rule for passing (Law 6), but it is the wrong
+    // number to print beside a picture: a 1920 frame compared against a 768
+    // render scored 45% here on a component that is 90% at the width it has a
+    // design for, and the line read as though the component were broken.
+    const at = score.viewports.find((v) => v.viewport === 'design') ?? null
+    console.log(dim(
+      at
+        ? `  ${at.total}% at the design's own width (${at.width}px); ${score.total}% on ${score.worstViewport}, ` +
+          `which has no design to compare against — worth looking at both.`
+        : `  The render scored ${score.total}% against the design — worth looking at both.`,
+    ))
   }
 
   advance(run, 'golden', { status: 'done', output: { baselines: frozen, test } })

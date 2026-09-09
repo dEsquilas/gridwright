@@ -59,6 +59,30 @@ Call `gw next --json` before every step. It returns:
 - **`gate` not null** — a human approves before anything is written. Stop and ask.
 - **`blocked`** — that stage is not built yet. Say so plainly and stop.
 
+## Closing `author`: the file and the props
+
+```bash
+gw done --output '{"file": "components/modules/NewsletterBanner/index.tsx",
+                   "props": {"fieldValues": {"title": "…", "text": "…"}}}'
+```
+
+Both halves are needed and neither can be worked out downstream.
+
+The **file** is what `verify`, `golden` and `library:register` all operate on.
+Without it they ask for a `--component` flag, and the pipeline stops on a
+question whose answer you had a moment ago.
+
+The **props** are what mounts it. They cannot be derived from the IR: the IR
+names the design's slots — `suscribeToOut`, `loremIpsumDolor` — and the
+component names its props by whatever convention the project follows. Only you
+know the mapping. Use the design's own copy, which is on each node's `default`
+in the IR: a paragraph two lines long where the design has three moves every
+box under it, and the score then reports a layout problem that is really a
+copy problem.
+
+A module rendered with no props returns null, and an empty render scores zero
+for a reason that has nothing to do with the design.
+
 ## Closing a stage
 
 ```bash
@@ -119,6 +143,21 @@ something that is shaped right and looks wrong.
 **Reusing a project component does not carry the design's styles with it.**
 `ui/Button` is the project's button, not necessarily this design's button.
 Check its result against the node's tokens like anything else.
+
+**And it will not carry your `data-gw` either.** A project primitive that does
+not declare and forward the attribute drops it, and JSX accepts an undeclared
+`data-*` on a component **with no type error** — it compiles, it renders, and
+the label is simply not in the DOM. `verify` reports it as *not found in the
+render* on a node you did label. The fix is one line in the primitive:
+
+```tsx
+// Props
+'data-gw'?: string;
+// and on the element it renders
+data-gw={dataGw}
+```
+
+That is a change to a shared component, so say so when you make it.
 
 **Use `conventions.breakpoints`, never Tailwind's defaults.** A project that
 renames its screens has no `md:` or `lg:` — those are not smaller breakpoints,

@@ -33,24 +33,33 @@ export async function runVerify(root: string, args: VerifyArgs): Promise<void> {
   const config = loadConfig(root)
   if (!config) fail('This project is not configured.', 'Run `gw init` first.')
 
-  if (!args.component) {
+  // Inside a run, the component and its props come from `author` — the only
+  // actor that knows either. `verify` used to demand both on the command line,
+  // which meant the stage could not run as part of the pipeline at all: an
+  // agent that had just written the file had to hand it back by hand.
+  const open = args.run ? loadState(root, args.run) : activeRun(root)
+  const authored = open?.stages.author.output
+  const componentArg = args.component ?? (typeof authored?.file === 'string' ? authored.file : undefined)
+
+  if (!componentArg) {
     fail(
       'Nothing to verify: pass a component with --component.',
       'gw verify --component components/modules/HeroBanner/index.tsx --figma "<url>"\n\n' +
-        'The design can come from a Figma URL (--figma) or from an existing run (--run).',
+        'Inside a run it is taken from what `author` recorded — close that stage with\n' +
+        '`gw done --output \'{"file": "...", "props": {...}}\'` and it needs no flags.',
     )
   }
 
-  const component = isAbsolute(args.component) ? args.component : resolvePath(root, args.component)
+  const component = isAbsolute(componentArg) ? componentArg : resolvePath(root, componentArg)
   if (!existsSync(component)) fail(`No such component: ${component}`)
 
   const design = args.figma
     ? await designFromFigma(root, config, args.figma)
     : designFromRun(root, args.run)
 
-  const props = parseProps(args.props)
+  const props = args.props ? parseProps(args.props) : authoredProps(authored)
 
-  step(`Rendering ${bold(args.component)} at ${config.verify.viewports.length} viewports`)
+  step(`Rendering ${bold(componentArg)} at ${config.verify.viewports.length} viewports`)
   if (!design.reference) {
     // Said out loud rather than folded into the score: a missing dimension
     // changes what the number means.
@@ -60,7 +69,7 @@ export async function runVerify(root: string, args: VerifyArgs): Promise<void> {
   // The shape that matches where this component lives. Assuming `default`
   // mounted nothing in a project whose modules export a named `Component`.
   const shape = config.conventions
-    ? (config.conventions.shapes.find((s) => args.component!.startsWith(s.dir))
+    ? (config.conventions.shapes.find((s) => componentArg.startsWith(s.dir))
        ?? config.conventions.shapes[0])
     : undefined
 
@@ -111,7 +120,6 @@ export async function runVerify(root: string, args: VerifyArgs): Promise<void> {
   // stage it is on — re-verifying a finished one is how you check a change you
   // just made, and dropping the result on the floor made the report show the
   // previous run's numbers.
-  const open = args.run ? loadState(root, args.run) : activeRun(root)
   const shouldRecord = open && (args.run !== undefined || open.stage === 'harness' || open.stage === 'verify')
   if (open && shouldRecord) {
     const { artifacts, ...score } = result
@@ -198,6 +206,30 @@ function designFromRun(root: string, id?: string): Design {
   const refPath = paths.reference(root, run.id)
   info(`Comparing against run ${run.id}`)
   return { measurements, reference: existsSync(refPath) ? refPath : undefined }
+}
+
+/**
+ * The props `author` recorded, and a clear complaint when it recorded none.
+ *
+ * They cannot be derived from the IR. The IR names the design's slots —
+ * `suscribeToOut`, `loremIpsumDolor` — and the component names its own props
+ * by whatever convention the project follows; this one wraps everything in a
+ * `fieldValues` its CMS supplies. Only the actor that wrote the file knows the
+ * mapping, so it is the actor that has to hand it over.
+ *
+ * Silence here is expensive: a module rendered without props returns null, and
+ * an empty render scores zero for a reason that has nothing to do with the
+ * design.
+ */
+function authoredProps(authored: Record<string, unknown> | undefined): Record<string, unknown> {
+  const props = authored?.props
+  if (props && typeof props === 'object') return props as Record<string, unknown>
+
+  warn('No props recorded on this run — rendering the component with none.')
+  console.log(dim('  If it renders empty, close `author` with them:'))
+  console.log(dim('    gw done --output \'{"file": "...", "props": {"fieldValues": {...}}}\''))
+  console.log(dim('  The design\'s own copy is in the IR, on each node\'s `default`.'))
+  return {}
 }
 
 /** Props for the harness. The component renders empty without them if its own
