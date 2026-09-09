@@ -1,14 +1,21 @@
 import { describe, it, expect } from 'vitest'
 import {
   deltaE, scoreChromatic, scoreStructural, scorePerceptual, combine, combineViewports, inconsistency,
-  type MeasuredNode, type Box, type ViewportScore,
+  type MeasuredNode, type Box, type ViewportScore, type IRRole,
 } from '../src/index.js'
 
 const ROOT: Box = { x: 0, y: 0, width: 1920, height: 344 }
 const W = { structural: 0.5, chromatic: 0.25, perceptual: 0.25 }
 
-const node = (p: string, depth: number, b: Box): MeasuredNode =>
-  ({ path: p, name: p.split(' / ').pop()!, role: 'container', depth, ...b })
+/** A design node as distill emits one: the label is what both sides match on,
+ *  derived from the layer name. Pass `''` for a render that carries none. */
+const node = (p: string, depth: number, b: Box, label?: string, role: IRRole = 'container'): MeasuredNode => {
+  const name = p.split(' / ').pop()!
+  return {
+    path: p, name, label: label ?? name.replace(/[^A-Za-z0-9]/g, ''),
+    role, depth, ...b,
+  }
+}
 
 describe('ΔE — CIEDE2000, not euclidean distance', () => {
   it('a colour against itself is zero', () => {
@@ -70,7 +77,7 @@ describe('structural — the dimension that carries half the weight', () => {
     const smallRoot: Box = { x: 0, y: 0, width: 960, height: 172 }
     const halved = design.map((n) => node(n.path, n.depth, {
       x: n.x / 2, y: n.y / 2, width: n.width / 2, height: n.height / 2,
-    }))
+    }, n.label))
     expect(scoreStructural(design, ROOT, halved, smallRoot, 2).score).toBe(100)
   })
 
@@ -85,10 +92,57 @@ describe('structural — the dimension that carries half the weight', () => {
     expect(f).toMatchObject({ edge: 'top', delta: 8 })
   })
 
-  it('a missing element scores zero for that node and says so', () => {
+  // A node that was never found is not a node that is 40px off, and folding
+  // both into one percentage left the reader unable to tell which the number
+  // was complaining about. Coverage carries the first now.
+  it('a missing element is reported as coverage, not averaged into the score', () => {
     const s = scoreStructural(design, ROOT, [design[0]!], ROOT, 2)
-    expect(s.findings.some((f) => f.edge === 'missing')).toBe(true)
-    expect(s.score).toBeLessThan(60)
+    const missing = s.findings.find((f) => f.edge === 'missing')
+    expect(missing).toMatchObject({ label: 'Title' })
+    expect(s.coverage).toBe(0.5)
+    // Below MIN_COVERAGE the pairing itself is in doubt, so it reports rather
+    // than scores — a number over one node is not a measurement of a component.
+    expect(s.unavailable).toBeTruthy()
+  })
+
+  // The failure this whole mechanism exists for. Figma called two sibling
+  // containers `Content`, the component labelled the first one `Vector` and
+  // the second one `Content`, and the content row was measured against the
+  // illustration's box: 648px too wide, with nothing in the finding pointing
+  // at the label.
+  it('a mislabelled node is reported as missing, never paired with a stranger', () => {
+    const twoContent = [
+      node('Wrapper / Row / Content', 2, { x: 64, y: 64, width: 116, height: 104 }),
+      node('Wrapper / Row / Content', 2, { x: 200, y: 64, width: 764, height: 136 }, 'Content2'),
+    ]
+    const misnamed = [
+      node('Wrapper / Row / Vector', 2, { x: 64, y: 64, width: 116, height: 104 }, 'Vector'),
+      node('Wrapper / Row / Content', 2, { x: 200, y: 64, width: 764, height: 136 }),
+    ]
+    const s = scoreStructural(twoContent, ROOT, misnamed, ROOT, 2)
+    // `Content` pairs with the row, which is the wrong element and is caught.
+    // `Content2` has no counterpart and says so, rather than borrowing one.
+    expect(s.findings.filter((f) => f.edge === 'missing').map((f) => f.label)).toEqual(['Content2'])
+    expect(s.findings.every((f) => Math.abs(f.delta) < 1000)).toBe(true)
+  })
+
+  // Figma draws a button as a frame holding a padding frame holding a text node
+  // beside an icon instance. The component writes `<Button label={…} />`. Those
+  // three are not three failures to label.
+  it('does not count a subtree the component renders as one component', () => {
+    const withButton = [
+      ...design,
+      node('Wrapper / Card / Button', 2, { x: 88, y: 180, width: 157, height: 44 }, 'Button', 'button'),
+      node('Wrapper / Card / Button / Text padding', 3, { x: 96, y: 190, width: 105, height: 24 }),
+      node('Wrapper / Card / Button / Icon', 3, { x: 210, y: 194, width: 16, height: 16 }),
+    ]
+    const rendered = [...design, node('Wrapper / Card / Button', 2, { x: 88, y: 180, width: 157, height: 44 }, 'Button', 'button')]
+    const s = scoreStructural(withButton, ROOT, rendered, ROOT, 2)
+    expect(s.collapsed).toBe(2)
+    // Three matched of three comparable: the two inside the button are not
+    // missing, so they are not held against the coverage either.
+    expect(s.coverage).toBe(1)
+    expect(s.score).toBe(100)
   })
 
   // Matching on geometry would be circular: a misplaced element would pair with
@@ -141,7 +195,7 @@ describe('structural — the dimension that carries half the weight', () => {
   // An unlabelled component still gets measured; it just gets the old, brittle
   // pairing rather than nothing at all.
   it('falls back to depth and reading order when the render carries no labels', () => {
-    const unlabelled = design.map((n, i) => node(`div${i}`, n.depth, n))
+    const unlabelled = design.map((n, i) => node(`div${i}`, n.depth, n, ''))
     expect(scoreStructural(design, ROOT, unlabelled, ROOT, 2).score).toBe(100)
   })
 })

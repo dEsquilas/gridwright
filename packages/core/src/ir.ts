@@ -53,6 +53,19 @@ export interface IRNode {
   role: IRRole
   /** Layer name, sanitized. Prop and slot names come from here. */
   name: string
+  /**
+   * The identifier to put in `data-gw`, so `verify` knows which rendered
+   * element is which.
+   *
+   * Not the layer name. Figma names a text layer after its own contents, so the
+   * honest name for a paragraph is the whole lorem passage, and sibling layers
+   * are routinely called the same thing — one real frame had two `Content` and
+   * two `Text`. Neither is usable as an identifier, and asking the model to
+   * invent one means the two sides invent different ones.
+   *
+   * Short, PascalCase, and unique across the tree.
+   */
+  label: string
   layout?: IRLayout
   /** Resolved tokens, or raw values still pending resolution. */
   tokens?: Record<string, string>

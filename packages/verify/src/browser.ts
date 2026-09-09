@@ -112,10 +112,11 @@ async function collectBoxes(page: Page, minSize: number): Promise<MeasuredNode[]
       const r = el.getBoundingClientRect()
       if (r.width < min || r.height < min) return
 
-      const name = el.getAttribute('data-gw') ?? el.tagName.toLowerCase()
+      const label = el.getAttribute('data-gw') ?? ''
+      const name = label || el.tagName.toLowerCase()
       const here = path ? `${path} / ${name}` : name
       out.push({
-        path: here, name, role: roleOf(el), depth,
+        path: here, name, label, role: roleOf(el), depth,
         x: r.x, y: r.y, width: r.width, height: r.height,
       })
       let i = 0
@@ -156,8 +157,17 @@ async function sampleColors(page: Page, root: Box, probes: ColorProbe[]): Promis
         return '#' + [r, g, b].map((v) => Math.round(v!).toString(16).padStart(2, '0')).join('')
       }
 
-      const labelled = (path: string): Element | null =>
-        document.querySelector(`[data-gw="${CSS.escape(path.split(' / ').pop() ?? '')}"]`)
+      // Deepest first: the node's own label when the component has it, then
+      // outward until one resolves. A probe on the `<path>` inside an
+      // illustration finds the `<svg>`; one on the text inside a reused
+      // `<Button />` finds the button.
+      const labelled = (chain: string[]): Element | null => {
+        for (let i = chain.length - 1; i >= 0; i--) {
+          const el = chain[i] ? document.querySelector(`[data-gw="${CSS.escape(chain[i]!)}"]`) : null
+          if (el) return el
+        }
+        return null
+      }
 
       return probes.map((p) => {
         // Identity first when the component labelled its nodes, geometry
@@ -165,7 +175,7 @@ async function sampleColors(page: Page, root: Box, probes: ColorProbe[]): Promis
         // to land inside the right element, not on a glyph.
         const x = root.x + p.u * root.width
         const y = root.y + p.v * root.height
-        let el = (p.path ? labelled(p.path) : null) ?? document.elementFromPoint(x, y)
+        let el = labelled(p.within ?? (p.label ? [p.label] : [])) ?? document.elementFromPoint(x, y)
 
         if (p.property === 'color') {
           // The glyphs are painted by whatever element owns the text, which may
@@ -174,6 +184,21 @@ async function sampleColors(page: Page, root: Box, probes: ColorProbe[]): Promis
             ? el.querySelector('*')
             : el
           return withText ? toHex(getComputedStyle(withText).color) : 'transparent'
+        }
+
+        // An SVG is painted by `fill`, not by a background. Figma reports the
+        // vector's own paint as a fill like any other, so a probe on an
+        // illustration asked for `backgroundColor` on an `<svg>` — always
+        // transparent, always ΔE 100, on artwork that was the right colour.
+        //
+        // The computed value is read rather than the attribute, because
+        // `fill="currentColor"` is how a component that lets the block decide
+        // the colour is written, and Chromium resolves it here.
+        const svg = el?.closest('svg')
+        if (svg) {
+          const painted = svg.querySelector('path, circle, rect, polygon, g') ?? svg
+          const fill = toHex(getComputedStyle(painted).fill)
+          if (fill !== 'transparent') return fill
         }
 
         // Walk up through transparent backgrounds to whatever actually paints.

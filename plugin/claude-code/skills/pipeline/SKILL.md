@@ -165,20 +165,39 @@ shapes will find.
 **No margins between siblings.** Use `gap`. The IR cannot express margins, so
 if you are reaching for one you have left the IR behind.
 
-**Label the nodes the IR names, with `data-gw`.** Use the layer's own name:
-`<div data-gw="Wrapper wide">`, `<a data-gw="Button">`. This is how `verify`
-knows which rendered element is which.
+**Copy each node's `label` into `data-gw`, character for character.** Every
+node in the IR carries one — `WrapperWide`, `CallToActions`, `Content2`. It is
+not the layer name and it is not a suggestion: it is the only thing the two
+sides agree on, and `verify` matches on it exactly.
 
-Without labels it falls back to pairing by depth and reading order, and that
+```tsx
+// ir.json says  { "label": "Content2", "role": "container", … }
+<div data-gw="Content2" className="flex …">
+```
+
+Do not rename it because it reads badly. Figma gives siblings the same name —
+one real frame had two containers both called `Content`, so the IR issued
+`Content` and `Content2` in document order. Reading them as a tree tells you
+which is which: `Content` is the first child of `CallToAction`, `Content2` the
+second. Writing `Vector` on the first and `Content` on the second, which is
+what the names looked like from the outside, matched the content row against
+the illustration's box and reported it 648px too wide. Nothing about that
+finding pointed at the label.
+
+Without labels `verify` falls back to pairing by depth and reading order, which
 breaks on any component worth writing: one inlined `<svg>` or one wrapper div
-shifts every pair at that depth, so the button gets measured against the
-illustration's box and a correct component scores in the twenties. Do not chase
-that score by reshaping the DOM to mirror Figma's tree — a Figma button carries
-six levels of component-instance wrappers, and reproducing them is the failure,
-not the fix. Label the nodes instead.
+shifts every pair at that depth. Do not chase that score by reshaping the DOM
+to mirror Figma's tree — a Figma button carries six levels of
+component-instance wrappers, and reproducing them is the failure, not the fix.
 
 Label what the design measures: containers, headings, text, buttons, images.
 Skip your own presentational wrappers — extra elements cost nothing.
+
+**You are not expected to reproduce what lives inside a component you reuse.**
+Figma draws a button as a frame holding a padding frame holding a text node
+beside an icon; you write `<Button label={…} />`. `verify` sees that the
+subtree collapsed and excludes it — it reports those nodes as `collapsed`, not
+as missing, and they do not count against coverage.
 
 **Figma copy becomes prop defaults**, not hardcoded markup. The component stays
 presentational: no fetching, no stores, no business logic.

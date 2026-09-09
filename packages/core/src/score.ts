@@ -23,6 +23,16 @@ export const MIN_COVERAGE = 0.65
 
 export interface NodeFinding {
   path: string
+  /**
+   * The `data-gw` the design asked for.
+   *
+   * This is the half a person can act on: `path` says where the node is in
+   * Figma, `label` says what to type. A finding printed as
+   * "Wrapper full / Wrapper wide / Call to actions | Newsletter / Call to
+   * action / Content / Content" is unreadable and, worse, ambiguous — that
+   * design has two `Content`.
+   */
+  label?: string
   /** What moved and by how much, in render pixels. Actionable; a number is not. */
   edge: string
   delta: number
@@ -42,6 +52,17 @@ export interface DimensionScore {
    * measurable".
    */
   coverage?: number
+  /**
+   * Design nodes that sit inside something the component renders as one piece,
+   * and so have no counterpart by construction.
+   *
+   * A Figma button is a frame holding a text-padding frame holding a text node
+   * beside an icon instance. The component writes `<Button label={…} />`. Those
+   * three nodes are not missing — nobody was ever going to write them — and
+   * counting them against coverage made a correctly built component look half
+   * unmatched. They are excluded from coverage and reported as a number.
+   */
+  collapsed?: number
   /** Present when the dimension could not be measured at all. A missing
    *  dimension is reported, never scored as zero — a zero would say "wrong"
    *  when the truth is "unknown". */
@@ -77,26 +98,24 @@ export interface Weights {
  *
  * Matching by geometry alone would be circular: a badly placed element would
  * pair with whatever happens to sit where it should have been, and score well.
- * Tree position is the thing that survives being wrong.
+ * Identity is the thing that survives being wrong.
  *
- * Two ways to establish that position, in order of preference.
+ * **By `data-gw` label**, which the IR issues and the component copies. Not the
+ * layer name and not the path: a component does not reproduce Figma's tree, so
+ * the same node sits at a different path on each side, and Figma routinely
+ * gives two siblings the same name.
  *
- * **By layer path**, when the component labels its nodes with `data-gw`. This
- * is what `MeasuredNode.path` was always for — its own doc comment calls it
- * "stable enough to match against a rendered tree".
+ * **By depth and reading order** only when the component carries no labels at
+ * all. That fallback is fragile in a way that is easy to miss — it pairs
+ * `design[i]` with `rendered[i]` at the same depth, so one wrapper div or one
+ * inlined `<svg>` shifts every pair after it. It exists so an unlabelled
+ * component gets a number rather than an error, and the number says to label.
  *
- * **By depth and reading order** otherwise, which is fragile in a way that is
- * easy to miss. It pairs `design[i]` with `rendered[i]` at the same depth, so
- * one wrapper div or one inlined `<svg>` shifts every pair after it and the
- * dimension reports nonsense — a button measured against an illustration's
- * box, and every colour probe landing on the wrong element. It also silently
- * demands that the DOM mirror Figma's tree, and a Figma button carries six
- * levels of component-instance wrappers that no sane component reproduces.
- *
- * So when even one label matches, identity wins for every node, and design
- * nodes with no counterpart are reported `missing` rather than paired with a
- * stranger. "Label this node" is actionable; a cascade of phantom deltas is
- * not.
+ * The two are never mixed. They were, and it was worse than either: identity
+ * claimed what it could, then reading order paired the leftovers with
+ * strangers, and a component whose only real fault was one misnamed label came
+ * back with `width off by +1240px` on a node that was never its counterpart.
+ * A design node with no label of its own is now reported, not paired.
  */
 export function scoreStructural(
   design: MeasuredNode[],
@@ -112,6 +131,130 @@ export function scoreStructural(
     return { dimension: 'structural', score: 0, findings: [], unavailable: 'nothing rendered' }
   }
 
+  const pairs = rendered.some((n) => n.label)
+    ? pairByLabel(design, rendered)
+    : pairByReadingOrder(design, rendered)
+
+  // Tolerance is in render pixels; overlap is normalized. Convert once.
+  const slack = renderedRoot.width > 0 ? tolerancePx / renderedRoot.width : 0
+
+  const findings: NodeFinding[] = []
+  let sum = 0
+  let matched = 0
+  let missing = 0
+  let collapsed = 0
+
+  for (const d of design) {
+    const r = pairs.get(d)
+    if (!r) {
+      // Inside something the component draws as one piece — a `<Button />` in
+      // place of Figma's four nested frames. Not a fault, and not scored.
+      if (isCollapsed(d, design, rendered, pairs)) {
+        collapsed++
+        findings.push({ path: d.path, label: d.label, edge: 'collapsed', delta: 0, overlap: 0 })
+        continue
+      }
+      missing++
+      findings.push({ path: d.path, label: d.label, edge: 'missing', delta: 0, overlap: 0 })
+      continue
+    }
+
+    matched++
+    const dn = normalize(d, designRoot)
+    const rn = normalize(r, renderedRoot)
+    const overlap = iou(dn, rn)
+
+    // Within tolerance counts as exact: a 1px rounding difference is not a bug.
+    const scored = overlap >= 1 - slack * 2 ? 1 : overlap
+    sum += scored
+
+    if (scored < 0.98) {
+      const expected = {
+        x: dn.x * renderedRoot.width, y: dn.y * renderedRoot.height,
+        width: dn.width * renderedRoot.width, height: dn.height * renderedRoot.height,
+      }
+      for (const e of edgeDeltas(expected, r, tolerancePx)) {
+        findings.push({ path: d.path, label: d.label, edge: e.edge, delta: e.delta, overlap: round(overlap) })
+      }
+    }
+  }
+
+  // Over what was comparable, not over the whole design.
+  //
+  // Averaging in a zero for every unmatched node folded two different facts
+  // into one number: "this node is 40px off" and "this node was never found".
+  // The first is a fix, the second is a label — and the reader could not tell
+  // which one the percentage was complaining about. Coverage carries the
+  // second now, and it is the thing that decides whether the score means
+  // anything at all.
+  const score = matched === 0 ? 0 : (sum / matched) * 100
+  const comparable = matched + missing
+  const coverage = comparable === 0 ? 0 : matched / comparable
+
+  // A missing node is the finding that unblocks every other one, so it sorts
+  // above a delta however large. `collapsed` is information, and sorts last.
+  const rank = (f: NodeFinding) => (f.edge === 'missing' ? 0 : f.edge === 'collapsed' ? 2 : 1)
+  findings.sort((a, b) => rank(a) - rank(b) || Math.abs(b.delta) - Math.abs(a.delta) || a.overlap - b.overlap)
+
+  const base = {
+    dimension: 'structural' as const,
+    score: round(score),
+    findings: findings.slice(0, 16),
+    coverage: round(coverage),
+    ...(collapsed > 0 ? { collapsed } : {}),
+  }
+
+  if (coverage < MIN_COVERAGE) {
+    return {
+      ...base,
+      // Reported instead of scored. Below this the pairing itself is in doubt,
+      // and every delta after the first mismatch is a phantom: fixing them
+      // means reshaping the DOM to chase a correspondence that was never real.
+      unavailable:
+        `only ${matched} of ${comparable} design nodes could be matched to the render. ` +
+        `Give the component's nodes the data-gw labels the IR issued before reading this as a score.`,
+    }
+  }
+  return base
+}
+
+/**
+ * Exact `data-gw` match, with same-label siblings resolved in reading order.
+ *
+ * Figma lets siblings share a name and the IR numbers the collisions, but a
+ * label can still legitimately appear twice in a repeated row. Grouping by
+ * label and pairing within the group in reading order handles that without
+ * letting a mismatch anywhere else in the tree shift the pairing.
+ */
+function pairByLabel(design: MeasuredNode[], rendered: MeasuredNode[]): Map<MeasuredNode, MeasuredNode> {
+  const keyed = (ns: MeasuredNode[]) => {
+    const groups = new Map<string, MeasuredNode[]>()
+    for (const n of ns) {
+      if (!n.label) continue
+      const list = groups.get(n.label) ?? []
+      list.push(n)
+      groups.set(n.label, list)
+    }
+    const m = new Map<string, MeasuredNode>()
+    for (const [label, list] of groups) {
+      list.sort((a, b) => a.y - b.y || a.x - b.x)
+      list.forEach((n, i) => m.set(`${label}#${i}`, n))
+    }
+    return m
+  }
+
+  const dk = keyed(design)
+  const rk = keyed(rendered)
+  const pairs = new Map<MeasuredNode, MeasuredNode>()
+  for (const [key, d] of dk) {
+    const r = rk.get(key)
+    if (r) pairs.set(d, r)
+  }
+  return pairs
+}
+
+/** The unlabelled fallback: `design[i]` against `rendered[i]` at each depth. */
+function pairByReadingOrder(design: MeasuredNode[], rendered: MeasuredNode[]): Map<MeasuredNode, MeasuredNode> {
   const byDepth = (ns: MeasuredNode[]) => {
     const m = new Map<number, MeasuredNode[]>()
     for (const n of ns) {
@@ -126,124 +269,52 @@ export function scoreStructural(
 
   const dd = byDepth(design)
   const rr = byDepth(rendered)
-  const findings: NodeFinding[] = []
-  let sum = 0
-  let counted = 0
-  // How many design nodes found a counterpart at all — the coverage behind the
-  // score, and the thing that decides whether the score means anything.
-  let matched = 0
-
-  // Figma lets siblings share a name, and this design has two `Content` nodes
-  // under the same parent, so a path alone is not a key. Nodes are keyed by
-  // path *and* their occurrence within it, in reading order — positional
-  // matching, but scoped to the handful of nodes that genuinely collide
-  // instead of to every node at a depth.
-  const keyed = (ns: MeasuredNode[]) => {
-    const groups = new Map<string, MeasuredNode[]>()
-    for (const n of ns) {
-      const list = groups.get(n.path) ?? []
-      list.push(n)
-      groups.set(n.path, list)
-    }
-    const m = new Map<string, MeasuredNode>()
-    for (const [path, list] of groups) {
-      list.sort((a, b) => a.y - b.y || a.x - b.x)
-      list.forEach((n, i) => m.set(`${path}#${i}`, n))
-    }
-    return m
-  }
-
-  const designKeys = keyed(design)
-  const renderedKeys = keyed(rendered)
-
-  // Identity first, then reading order for whatever is left over. Partial
-  // labelling is the realistic case, not the exception: Figma names a text
-  // layer after its own contents, so the honest label for a paragraph is the
-  // whole lorem passage, and nobody is putting that in a `data-gw`. Those
-  // nodes still get measured — positionally, against what identity did not
-  // already claim, so a labelled sibling can no longer be stolen from them.
   const pairs = new Map<MeasuredNode, MeasuredNode>()
-  const claimed = new Set<MeasuredNode>()
-  for (const [key, d] of designKeys) {
-    const r = renderedKeys.get(key)
-    if (r) {
-      pairs.set(d, r)
-      claimed.add(r)
-    }
-  }
-
-  const leftovers = byDepth(rendered.filter((n) => !claimed.has(n)))
   for (const [depth, designNodes] of dd) {
-    const pool = leftovers.get(depth) ?? []
-    let j = 0
-    for (const d of designNodes) {
-      if (pairs.has(d)) continue
-      const r = pool[j++]
+    const pool = rr.get(depth) ?? []
+    designNodes.forEach((d, i) => {
+      const r = pool[i]
       if (r) pairs.set(d, r)
-    }
+    })
   }
+  return pairs
+}
 
-  // Tolerance is in render pixels; overlap is normalized. Convert once.
-  const slack = renderedRoot.width > 0 ? tolerancePx / renderedRoot.width : 0
-
-  for (const [, designNodes] of dd) {
-    for (let i = 0; i < designNodes.length; i++) {
-      const d = designNodes[i]!
-      counted++
-      const r = pairs.get(d)
-      if (!r) {
-        // Present in the design, absent from the render. Scores zero, and says so.
-        findings.push({ path: d.path, edge: 'missing', delta: 0, overlap: 0 })
-        continue
-      }
-      matched++
-      const dn = normalize(d, designRoot)
-      const rn = normalize(r, renderedRoot)
-      const overlap = iou(dn, rn)
-
-      // Within tolerance counts as exact: a 1px rounding difference is not a bug.
-      const scored = overlap >= 1 - slack * 2 ? 1 : overlap
-      sum += scored
-
-      if (scored < 0.98) {
-        const expected = {
-          x: dn.x * renderedRoot.width, y: dn.y * renderedRoot.height,
-          width: dn.width * renderedRoot.width, height: dn.height * renderedRoot.height,
-        }
-        for (const e of edgeDeltas(expected, r, tolerancePx)) {
-          findings.push({ path: d.path, edge: e.edge, delta: e.delta, overlap: round(overlap) })
-        }
-      }
-    }
+/**
+ * Whether this design node lives inside something the component renders whole.
+ *
+ * Two conditions, and both are needed.
+ *
+ * The nearest design ancestor that matched is **not a container** — it is a
+ * button, an image, an icon, an input. Those are leaves in code however many
+ * frames Figma nests inside them. A container that swallowed its children is a
+ * real omission, and the first cut of this check called it collapsed too,
+ * which quietly excused every unlabelled node in the tree.
+ *
+ * And that ancestor's rendered counterpart has **no labelled descendant** —
+ * the component really did stop there, rather than labelling some of the
+ * subtree and forgetting the rest.
+ *
+ * Ancestry comes off the path rather than a parent link, which both sides
+ * already build the same way: a node is inside another when its path starts
+ * with the other's.
+ */
+function isCollapsed(
+  node: MeasuredNode,
+  design: MeasuredNode[],
+  rendered: MeasuredNode[],
+  pairs: Map<MeasuredNode, MeasuredNode>,
+): boolean {
+  let nearest: MeasuredNode | null = null
+  for (const d of design) {
+    if (d === node || !pairs.has(d)) continue
+    if (!node.path.startsWith(`${d.path} / `)) continue
+    if (!nearest || d.path.length > nearest.path.length) nearest = d
   }
+  if (!nearest || nearest.role === 'container') return false
 
-  // Extra rendered nodes at a depth are not penalised here: a wrapper div that
-  // the design did not need is a code-style question, not a fidelity one.
-  const score = counted === 0 ? 0 : (sum / counted) * 100
-  findings.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.overlap - b.overlap)
-
-  const coverage = counted === 0 ? 0 : matched / counted
-  if (coverage < MIN_COVERAGE) {
-    return {
-      dimension: 'structural',
-      score: round(score),
-      findings: findings.slice(0, 16),
-      coverage: round(coverage),
-      // Reported instead of scored. Below this the pairing itself is in doubt,
-      // and every delta after the first mismatch is a phantom: fixing them
-      // means reshaping the DOM to chase a correspondence that was never real.
-      unavailable:
-        `only ${matched} of ${counted} design nodes could be matched to the render. ` +
-        `Label the component's nodes with data-gw before reading this as a score.`,
-    }
-  }
-
-  return {
-    dimension: 'structural',
-    score: round(score),
-    findings: findings.slice(0, 16),
-    coverage: round(coverage),
-  }
+  const counterpart = pairs.get(nearest)!
+  return !rendered.some((r) => r.label && r.path.startsWith(`${counterpart.path} / `))
 }
 
 // --- chromatic ---------------------------------------------------------------
@@ -304,7 +375,7 @@ export function deltaE(hex1: string, hex2: string): number {
   )
 }
 
-export interface ProbeResult { from: string; expected: string; got: string; deltaE: number }
+export interface ProbeResult { from: string; label?: string; expected: string; got: string; deltaE: number }
 
 /**
  * ΔE ≤ 1 is "indistinguishable to a trained eye" and scores full marks. Beyond
@@ -321,7 +392,16 @@ export function scoreChromatic(probes: ProbeResult[], tolerance = 1): DimensionS
     const s = Math.max(0, 1 - over / 9)
     sum += s
     if (s < 0.98) {
-      findings.push({ path: `${p.from}: ${p.expected} → ${p.got}`, edge: 'colour', delta: round(p.deltaE, 1), overlap: round(s) })
+      findings.push({
+        path: `${p.from}: ${p.expected} → ${p.got}`,
+        // The label plus the two colours, which is the whole finding. The path
+        // was Figma's, and on an icon instance it ran to eleven segments of
+        // component plumbing that named nothing the reader could act on.
+        ...(p.label ? { label: `${p.label}: ${p.expected} → ${p.got}` } : {}),
+        edge: 'colour',
+        delta: round(p.deltaE, 1),
+        overlap: round(s),
+      })
     }
   }
   findings.sort((a, b) => b.delta - a.delta)

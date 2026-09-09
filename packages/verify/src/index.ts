@@ -106,6 +106,7 @@ export async function verify(opts: VerifyOptions): Promise<VerifyResult> {
             const got = shot.sampled[i] ?? 'transparent'
             return {
               from: p.from,
+              ...(p.label ? { label: p.label } : {}),
               expected: p.hex,
               got,
               // A transparent sample means nothing painted there, which is a
@@ -164,12 +165,18 @@ export function explain(result: RunScore): string {
         lines.push(`    ${d.dimension}: not measured — ${d.unavailable}`)
         continue
       }
-      lines.push(`    ${d.dimension}: ${d.score}%`)
+      const cover = d.coverage !== undefined && d.coverage < 1
+        ? ` (${Math.round(d.coverage * 100)}% of the design matched${d.collapsed ? `, ${d.collapsed} collapsed into components` : ''})`
+        : ''
+      lines.push(`    ${d.dimension}: ${d.score}%${cover}`)
       for (const f of d.findings.slice(0, 5)) {
+        if (f.edge === 'collapsed') continue
         const delta = f.edge === 'missing'
-          ? 'missing from the render'
+          ? 'not found in the render — label it data-gw="' + (f.label ?? '') + '"'
           : `${f.edge} off by ${f.delta > 0 ? '+' : ''}${f.delta}px`
-        lines.push(`      • ${f.path} — ${delta}`)
+        // The label, not the path: the path is Figma's, and it is what made
+        // every finding print sixty characters of instance plumbing.
+        lines.push(`      • ${f.label || f.path} — ${delta}`)
       }
     }
   }

@@ -132,7 +132,9 @@ function printFocus(run: RunState, score: RunScore, focus: Focus, iteration: num
   const d = focus.dimension
   console.log(`${bold(run.id)} ${dim(`· iteration ${iteration} of ${cap}`)}`)
   console.log()
-  const coverage = d.coverage !== undefined ? dim(`  (${Math.round(d.coverage * 100)}% of the design matched)`) : ''
+  const coverage = d.coverage !== undefined
+    ? dim(`  (${Math.round(d.coverage * 100)}% of the design matched${d.collapsed ? `, ${d.collapsed} collapsed into components` : ''})`)
+    : ''
   console.log(`${yellow(d.dimension)} ${d.score}% — failing on ${focus.viewport} (${focus.width}px)${coverage}`)
 
   if (d.findings.length === 0) {
@@ -143,13 +145,15 @@ function printFocus(run: RunState, score: RunScore, focus: Focus, iteration: num
   // Grouped by element: four deltas on one node is one fix, not four.
   const byPath = new Map<string, typeof d.findings>()
   for (const f of d.findings) {
-    const list = byPath.get(f.path) ?? []
+    if (f.edge === 'collapsed') continue
+    const key = f.label || f.path
+    const list = byPath.get(key) ?? []
     list.push(f)
-    byPath.set(f.path, list)
+    byPath.set(key, list)
   }
   for (const [path, findings] of byPath) {
     const parts = findings.map((f) =>
-      f.edge === 'missing' ? 'missing from the render'
+      f.edge === 'missing' ? 'not found in the render — give it data-gw'
         : f.edge === 'colour' ? `ΔE ${f.delta}`
         : `${f.edge} ${f.delta > 0 ? '+' : ''}${f.delta}px`,
     )

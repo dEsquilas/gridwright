@@ -21,6 +21,8 @@ export interface Box {
 }
 
 export interface MeasuredNode extends Box {
+  /** The `data-gw` value this node expects. Matching is by this, not by name. */
+  label: string
   /** Layer path, e.g. "Wrapper full / Card destacada / Title". Stable enough to
    *  match against a rendered tree, unlike Figma's node ids. */
   path: string
@@ -49,8 +51,20 @@ export interface ColorProbe {
    * the nodes that carry one.
    */
   property: 'background' | 'color'
-  /** Layer path, so the probe can find its element by identity when the
-   *  component labels its nodes. */
+  /** The node's `data-gw` label, so the probe finds its element by identity
+   *  rather than by guessing a point on the screen. */
+  label?: string
+  /**
+   * Every label from the root down to this node, outermost first.
+   *
+   * A probe often sits on something no component reproduces: the `<path>`
+   * inside an illustration, the text node inside a reused `<Button />`. Its
+   * own label then resolves to nothing and the sample falls back to a pixel —
+   * which lands in a transparent gap in the artwork and reads the card behind
+   * it. Walking up the chain finds the outermost element that does exist, and
+   * an inherited `color` or a background is read off that correctly.
+   */
+  within?: string[]
   path?: string
 }
 

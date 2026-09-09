@@ -52,7 +52,7 @@ export function distill(
     height: root.absoluteBoundingBox?.height ?? 0,
   }
   const ctx: Ctx = {
-    warnings: [], raw: new Map(), opts, absoluteCount: 0,
+    labels: new Set(), labelChain: [], warnings: [], raw: new Map(), opts, absoluteCount: 0,
     measured: [], probes: [], textRegions: [], root: rootBox,
   }
 
@@ -185,6 +185,11 @@ export function shouldHalt(ir: IR, opts: DistillOptions): { halt: boolean; reaso
 // ---------------------------------------------------------------------------
 
 interface Ctx {
+  /** Labels already handed out, so `data-gw` is unique across the tree. A
+   *  `querySelector` cannot tell two `Content` nodes apart. */
+  labels: Set<string>
+  /** Labels of the ancestors of the node being walked, outermost first. */
+  labelChain: string[]
   warnings: IRWarning[]
   raw: Map<string, RawToken>
   opts: DistillOptions
@@ -218,7 +223,7 @@ function walk(node: FigmaNode, ctx: Ctx, parentPath: string, depth: number): IRN
   }
 
   const role = detectRole(node)
-  const out: IRNode = { role, name: sanitize(node.name) }
+  const out: IRNode = { role, name: sanitize(node.name), label: makeLabel(node.name, role, ctx) }
   // Carried through the walk so the measurements can be filtered to whatever
   // survives pruning, then stripped: the model never sees it.
   ;(out as IRNode & { _path?: string })._path = path
@@ -227,7 +232,10 @@ function walk(node: FigmaNode, ctx: Ctx, parentPath: string, depth: number): IRN
   // box (Figma sometimes omits it) are skipped rather than measured as zero.
   const box = node.absoluteBoundingBox
   if (box && box.width > 0 && box.height > 0) {
-    ctx.measured.push({ path, name: out.name, role, depth, x: box.x, y: box.y, width: box.width, height: box.height })
+    ctx.measured.push({
+      path, name: out.name, label: out.label, role, depth,
+      x: box.x, y: box.y, width: box.width, height: box.height,
+    })
 
     // Text regions get masked out of the perceptual diff: Figma and Chromium
     // will never agree on kerning no matter how right the code is.
@@ -249,6 +257,8 @@ function walk(node: FigmaNode, ctx: Ctx, parentPath: string, depth: number): IRN
         hex: toHex(solid),
         from: path,
         property: isText ? 'color' : 'background',
+        label: out.label,
+        within: [...ctx.labelChain, out.label],
         path,
       })
     }
@@ -277,10 +287,12 @@ function walk(node: FigmaNode, ctx: Ctx, parentPath: string, depth: number): IRN
     if (box && box.width > 0 && box.height > 0) out.ratio = aspectRatio(box.width, box.height)
   }
 
+  ctx.labelChain.push(out.label)
   const kids = (node.children ?? [])
     .filter(isVisible)
     .map((c) => walk(c, ctx, path, depth + 1))
     .filter((n): n is IRNode => n !== null)
+  ctx.labelChain.pop()
 
   if (kids.length > 0) out.children = collapse(kids)
 
@@ -645,6 +657,42 @@ export function camelCase(name: string): string {
 }
 
 /**
+ * A short, unique identifier for a node — what goes in `data-gw`.
+ *
+ * Derived rather than taken. Figma names a text layer after its own contents,
+ * so the honest name for a paragraph is the whole lorem passage, and sibling
+ * layers are routinely called the same thing — one real frame had two `Content`
+ * and two `Text`. Neither is usable as an identifier, and asking the model to
+ * invent one means the two sides invent different ones.
+ */
+function makeLabel(rawName: string, role: IRRole, ctx: Ctx): string {
+  const base = toPascalCase(shortWords(rawName)) || roleLabel(role)
+  let label = base
+  // Two `Content` nodes under one parent is normal in Figma and fatal for a
+  // querySelector, so a collision gets a number rather than a longer name.
+  for (let n = 2; ctx.labels.has(label); n++) label = `${base}${n}`
+  ctx.labels.add(label)
+  return label
+}
+
+/** Three words: enough to recognise a node, short enough to type. */
+function shortWords(input: string): string {
+  return sanitize(input)
+    .replace(/[^A-Za-z0-9\s-]/g, ' ')
+    .split(/[\s-]+/)
+    .filter(Boolean)
+    // A leading number is a designer's note about line count, not a name.
+    .filter((w, n) => !(n === 0 && /^\d+$/.test(w)))
+    .slice(0, 3)
+    .join(' ')
+}
+
+function roleLabel(role: IRRole): string {
+  return role.charAt(0).toUpperCase() + role.slice(1)
+}
+
+
+/**
  * Name of the prop the content comes in through.
  *
  * Capped at three words. Designers routinely name a text layer with the whole
@@ -679,6 +727,9 @@ function shortCamel(input: string): string {
  * you have HeroAboutUs, HeroAboutUs2 and HeroAboutUsNew.
  */
 export function semanticHash(ir: IR): string {
+  // The label is derived from the name and the tree, so it adds nothing to the
+  // hash — and including it would make a run's identity depend on collision
+  // numbering.
   const skeleton = (n: IRNode): unknown => ({
     r: n.role, l: n.layout, t: n.tokens, lv: n.level,
     c: (n.children ?? []).map(skeleton),
