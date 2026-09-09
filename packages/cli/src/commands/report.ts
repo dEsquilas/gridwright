@@ -16,6 +16,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import { Script } from 'node:vm'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -88,7 +89,24 @@ export function runReport(root: string, args: ReportArgs): void {
   const dir = paths.dashboard(root)
   mkdirSync(dir, { recursive: true })
   const out = join(dir, 'index.html')
-  writeFileSync(out, page(config, entries, selected))
+  const html = page(config, entries, selected)
+
+  // Parse the script before writing it. A page whose JS does not compile
+  // renders as a blank white rectangle with no error anywhere a person will
+  // look, and it took one stray apostrophe — `\'` inside a template literal
+  // collapses to a bare quote, which closed the string it was meant to be in.
+  // Compiling is not running: this checks syntax and executes nothing.
+  const script = html.slice(html.lastIndexOf('<script>') + '<script>'.length, html.lastIndexOf('</script>'))
+  try {
+    new Script(script)
+  } catch (e) {
+    fail(
+      'The dashboard was generated with a syntax error in its script, so it would render blank.',
+      `${e instanceof Error ? e.message : String(e)}\n\nThis is a bug in gridwright, not in your project.`,
+    )
+  }
+
+  writeFileSync(out, html)
 
   ok(`Dashboard written to ${out}`)
   const views = entries.filter((e) => e.mode === 'view').length
@@ -456,7 +474,7 @@ function verdict(v) {
   if (v.dimensions.length === 0) {
     return '<div class="verdict"><span>' + v.total + '%</span>' +
       '<span class="muted" style="flex:1"></span>' +
-      '<span class="muted">from the registry \u2014 the run\'s detail is gone</span></div>';
+      '<span class="muted">from the registry \u2014 no run detail kept</span></div>';
   }
   const parts = v.dimensions.map(d => d.unavailable
     ? '<span class="na">' + d.dimension + ': not measured</span>'
@@ -484,7 +502,7 @@ function tokensSection(e) {
     '<td class="muted">' + esc(r.note) + '</td></tr>').join('');
   return '<h2>How its values resolved</h2>' +
     '<p class="muted">' + n('exact') + ' already in the system \u00b7 ' + n('near') +
-    ' using the system\'s value \u00b7 ' + n('new') + ' new</p>' +
+    " using the system's value \u00b7 " + n('new') + ' new</p>' +
     '<details><summary>All ' + e.resolutions.length + '</summary>' +
     '<table><tr><th>bucket</th><th>design value</th><th>system token</th><th>note</th></tr>' +
     rows + '</table></details>';
