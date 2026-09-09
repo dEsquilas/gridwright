@@ -14,11 +14,18 @@ import type { Framework, GridwrightConfig } from '@gridwright/core'
 
 export interface RegistryEntry {
   path: string
+  /** A module or a whole view. The library is browsed by this before anything
+   *  else — "what do we have" is two questions, not one. */
+  mode?: 'component' | 'view'
   figma: { file: string; node: string; irHash: string }
   props: string[]
   tokens: string[]
   baseline?: string
   score?: number
+  /** Per-viewport totals, so the library can show the shape of a result and
+   *  not only its headline — and can still show one after the run's own
+   *  artifacts have been cleaned up. */
+  viewports?: Array<{ name: string; width: number; total: number }>
   runs: number
   updatedAt: string
 }
@@ -87,6 +94,8 @@ export interface RegisterInput {
   tokens: string[]
   baseline?: string
   score?: number
+  mode?: 'component' | 'view'
+  viewports?: Array<{ name: string; width: number; total: number }>
 }
 
 export interface RegisterResult {

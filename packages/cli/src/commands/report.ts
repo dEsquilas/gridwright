@@ -1,15 +1,15 @@
 /**
- * `gw report` — the page someone looks at to decide.
+ * `gw report` — the project's component library, and how each piece got there.
  *
- * The first version led with three red percentages and never showed the design.
- * You cannot judge "does this match?" without the thing it should match, and a
- * number is not that thing — a correct component scored 40% and the page had no
- * way to say so.
+ * It started as a report on one run: three red percentages and no picture of
+ * the design. You cannot judge "does this match?" without the thing it should
+ * match, so the comparison came first and the numbers moved underneath.
  *
- * So the comparison comes first and everything else is support. Side by side,
- * a drag-to-compare overlay, and the diff; the tokens, the IR and the stage log
- * are folded away underneath, useful once you have already decided something is
- * worth looking into.
+ * But one run is a receipt, not a dashboard. What a person actually wants is
+ * the library — every module and every view the project has, what each one is,
+ * and how it went when gridwright built it. So the spine is the registry and
+ * the baselines, both of which are per component and both of which outlive the
+ * run that produced them; a run is the detail you open, not the subject.
  *
  * Static HTML with the images inlined. It has to open from a gitignored
  * directory months later, on a machine with nothing installed.
@@ -22,74 +22,15 @@ import {
   activeRun, advance, listRuns, loadConfig, loadState, paths, saveState,
   type IR, type Measurements, type RunScore, type RunState, type GridwrightConfig,
 } from '@gridwright/core'
+import { readRegistry, type RegistryEntry } from '@gridwright/library'
 import type { Resolution } from '@gridwright/tokens'
-import { ok, fail, info, dim } from '../ui.js'
+import { ok, fail, dim } from '../ui.js'
 
 export interface ReportArgs { run?: string; open?: boolean }
 
-export function runReport(root: string, args: ReportArgs): void {
-  const config = loadConfig(root)
-  if (!config) fail('This project is not configured.', 'Run `gw init` first.')
-  const run = args.run ? loadState(root, args.run) : activeRun(root) ?? listRuns(root)[0]
-  if (!run) fail('No run to report on.', 'Start one with `gw build "<figma-url>"`.')
-
-  const dir = paths.dashboard(root)
-  mkdirSync(dir, { recursive: true })
-  const all = listRuns(root)
-
-  // Every run that has been measured gets its own page, so the switcher has
-  // somewhere to go. They are regenerated together because the switcher on an
-  // older page has to know about the newer ones — a link written yesterday
-  // cannot point at a run that did not exist yet.
-  //
-  // Cheap enough: a page is state plus a handful of PNGs, and the whole
-  // directory is scaffolding. Capped anyway, because a project with two
-  // hundred runs does not want two hundred pages rewritten to look at one.
-  const measured = all.filter((r) => r.stages.verify.output?.score).slice(0, 24)
-  const pages = measured.some((r) => r.id === run.id) ? measured : [run, ...measured]
-  for (const r of pages) {
-    writeFileSync(paths.dashboardPage(root, r.id), page(root, config, r, all))
-  }
-
-  // `index.html` stays the entry point, and is the run just reported on.
-  const out = join(dir, 'index.html')
-  writeFileSync(out, page(root, config, run, all))
-
-  ok(`Dashboard written to ${out}`)
-  console.log(dim('  Side by side, drag to compare, and the diff — the design is in there now.'))
-  if (pages.length > 1) {
-    console.log(dim(`  ${pages.length} runs in the switcher at the top.`))
-  }
-
-  // The flag existed and did nothing: it was declared, parsed, and never read,
-  // so `gw report --open` printed a path and left you to find it yourself.
-  if (args.open) openInBrowser(out)
-  else console.log(dim(`  open ${out}`))
-
-  if (run.stage === 'report') {
-    advance(run, 'report', { status: 'done', output: { file: out } })
-    saveState(root, run)
-  }
-}
-
-/**
- * Hands the file to the desktop rather than starting a server.
- *
- * The page inlines every image as a data URI for exactly this reason: a
- * `file://` URL with no origin cannot fetch a sibling PNG, and a dashboard
- * that needs a server to look at is one nobody looks at.
- */
-function openInBrowser(file: string): void {
-  const cmd = process.platform === 'darwin' ? 'open'
-    : process.platform === 'win32' ? 'start'
-    : 'xdg-open'
-  try {
-    execFileSync(cmd, [file], { stdio: 'ignore' })
-  } catch {
-    // Headless, or no desktop. The path was already printed above.
-    console.log(dim('  Could not open a browser here — the path above is the page.'))
-  }
-}
+/** How many entries get their images inlined. Past this the page is measured in
+ *  tens of megabytes, and nobody scrolls that far anyway. */
+const MAX_ENTRIES = 40
 
 interface ViewportView {
   name: string
@@ -103,31 +44,187 @@ interface ViewportView {
   dimensions: RunScore['viewports'][number]['dimensions']
 }
 
-function page(root: string, config: GridwrightConfig, run: RunState, all: RunState[]): string {
-  const ir = readJson<IR>(paths.ir(root, run.id))
-  const measurements = readJson<Measurements>(paths.measurements(root, run.id))
-  const resolutions = readJson<Resolution[]>(paths.resolutions(root, run.id)) ?? []
-  const score = run.stages.verify.output?.score as RunScore | undefined
+/** One thing the project has: a module or a view, with the evidence behind it. */
+interface Entry {
+  name: string
+  mode: 'component' | 'view'
+  /** Built but never registered — visible, and marked, so a run that stopped
+   *  short is not invisible in the very page meant to show what exists. */
+  registered: boolean
+  path: string
+  node: string
+  runId: string | null
+  runs: number
+  updatedAt: string
+  score: number | null
+  props: string[]
+  tokens: string[]
+  designWidth: number
+  design: string | null
+  views: ViewportView[]
+  warnings: Array<{ severity: string; message: string }>
+  resolutions: Array<{ bucket: string; value: string; token: string | null; note: string }>
+  stages: Array<{ name: string; status: string; reason: string }>
+}
 
-  const design = findDesign(root, run)
+export function runReport(root: string, args: ReportArgs): void {
+  const config = loadConfig(root)
+  if (!config) fail('This project is not configured.', 'Run `gw init` first.')
+
+  const runs = listRuns(root)
+  const entries = library(root, config, runs)
+  if (entries.length === 0) {
+    fail(
+      'Nothing to show yet.',
+      'No component is registered and no run has been verified. Start one with `gw build "<figma-url>"`.',
+    )
+  }
+
+  // Which entry opens first: the run just reported on, else the newest.
+  const focus = args.run ? loadState(root, args.run) : activeRun(root) ?? runs[0] ?? null
+  const focusName = focus ? componentName(focus) : entries[0]!.name
+  const selected = Math.max(0, entries.findIndex((e) => e.name === focusName))
+
+  const dir = paths.dashboard(root)
+  mkdirSync(dir, { recursive: true })
+  const out = join(dir, 'index.html')
+  writeFileSync(out, page(config, entries, selected))
+
+  ok(`Dashboard written to ${out}`)
+  const views = entries.filter((e) => e.mode === 'view').length
+  const modules = entries.length - views
+  console.log(dim(`  ${modules} module${modules === 1 ? '' : 's'}${views ? ` and ${views} view${views === 1 ? '' : 's'}` : ''} in the library.`))
+
+  if (args.open) openInBrowser(out)
+  else console.log(dim(`  open ${out}`))
+
+  if (focus && focus.stage === 'report') {
+    advance(focus, 'report', { status: 'done', output: { file: out } })
+    saveState(root, focus)
+  }
+}
+
+/**
+ * Every module and view the project has.
+ *
+ * The registry is the spine: it is what `library:register` writes and what
+ * survives its run. A run that was built but never registered is included and
+ * marked, because a dashboard that hides unfinished work answers the wrong
+ * question.
+ */
+function library(root: string, config: GridwrightConfig, runs: RunState[]): Entry[] {
+  const registry = readRegistry(root, config)
+  const latestRun = new Map<string, RunState>()
+  for (const run of runs) {
+    const name = componentName(run)
+    // `listRuns` is newest first, so the first one wins.
+    if (!latestRun.has(name)) latestRun.set(name, run)
+  }
+
+  const entries: Entry[] = []
+  const seen = new Set<string>()
+
+  for (const [name, reg] of Object.entries(registry)) {
+    seen.add(name)
+    entries.push(entryFor(root, name, reg, latestRun.get(name) ?? null, true))
+  }
+  for (const [name, run] of latestRun) {
+    if (seen.has(name)) continue
+    if (!run.stages.verify.output?.score && !run.stages.author.output?.file) continue
+    entries.push(entryFor(root, name, null, run, false))
+  }
+
+  // Registered first, then by name: a library is browsed alphabetically.
+  return entries
+    .sort((a, b) => Number(b.registered) - Number(a.registered) || a.name.localeCompare(b.name))
+    .slice(0, MAX_ENTRIES)
+}
+
+function entryFor(
+  root: string,
+  name: string,
+  reg: RegistryEntry | null,
+  run: RunState | null,
+  registered: boolean,
+): Entry {
+  const ir = run ? readJson<IR>(paths.ir(root, run.id)) : null
+  const measurements = run ? readJson<Measurements>(paths.measurements(root, run.id)) : null
+  const score = run?.stages.verify.output?.score as RunScore | undefined
+  const resolutions = run ? readJson<Resolution[]>(join(paths.run(root, run.id), 'resolutions.json')) : null
+
   const designWidth = measurements?.root.width ?? 0
-  const component = componentName(run)
+  const viewports = score?.viewports
+    ?? reg?.viewports?.map((v) => ({
+      viewport: v.name, width: v.width, total: v.total,
+      dimensions: [] as RunScore['viewports'][number]['dimensions'],
+    }))
+    ?? []
 
-  const views: ViewportView[] = (score?.viewports ?? []).map((v) => ({
+  const views: ViewportView[] = viewports.map((v) => ({
     name: v.viewport,
     width: v.width,
     total: v.total,
-    render: shot(root, run.id, `${v.viewport}.png`),
-    diff: shot(root, run.id, `${v.viewport}-diff.png`),
+    // The frozen baseline first: it is per component and it is committed, so it
+    // is still there long after the run that made it was cleaned up.
+    render: inlineImage(join(paths.baselines(root), `${name}.${v.viewport}.png`))
+      ?? (run ? shot(root, run.id, `${v.viewport}.png`) : null),
+    diff: run ? shot(root, run.id, `${v.viewport}-diff.png`) : null,
     // Within 10%: a 1440 render against a 1440 frame is the same layout, a
     // 375 render against it is a different one.
     hasReference: designWidth > 0 && Math.abs(v.width - designWidth) / designWidth < 0.1,
     dimensions: v.dimensions,
   }))
 
+  const atDesign = score?.viewports.find((v) => v.viewport === 'design')
+
+  return {
+    name,
+    mode: reg?.mode ?? run?.mode ?? 'component',
+    registered,
+    path: reg?.path ?? (typeof run?.stages.author.output?.file === 'string' ? run.stages.author.output.file : ''),
+    node: reg?.figma.node ?? run?.source.nodeId ?? '',
+    runId: run?.id ?? null,
+    runs: reg?.runs ?? (run ? 1 : 0),
+    updatedAt: reg?.updatedAt ?? run?.createdAt ?? '',
+    score: reg?.score ?? atDesign?.total ?? score?.total ?? null,
+    props: reg?.props ?? [],
+    tokens: reg?.tokens ?? [],
+    designWidth,
+    design: inlineImage(join(paths.baselines(root), `${name}.design.png`))
+      ?? (run ? inlineImage(paths.reference(root, run.id)) : null),
+    views,
+    warnings: (ir?.warnings ?? []).slice(0, 12).map((w) => ({ severity: w.severity, message: w.message })),
+    resolutions: (resolutions ?? []).map((r) => ({
+      bucket: r.bucket,
+      value: r.raw.value.slice(0, 60),
+      token: r.match?.name ?? null,
+      note: r.note ?? '',
+    })),
+    stages: run
+      ? Object.entries(run.stages)
+          .filter(([, st]) => st.status !== 'pending')
+          .map(([n, st]) => ({ name: n, status: st.status, reason: st.reason ?? '' }))
+      : [],
+  }
+}
+
+function page(config: GridwrightConfig, entries: Entry[], selected: number): string {
+  const modules = entries.filter((e) => e.mode !== 'view')
+  const views = entries.filter((e) => e.mode === 'view')
+
+  const button = (e: Entry) => {
+    const i = entries.indexOf(e)
+    const pct = e.score !== null ? `${Math.round(e.score)}%` : '—'
+    return `<button data-i="${i}" data-name="${esc(e.name.toLowerCase())}"${i === selected ? ' class="on"' : ''}>` +
+      `${esc(e.name)}<span class="pct">${esc(pct)}</span></button>`
+  }
+
+  const group = (label: string, list: Entry[]) =>
+    list.length === 0 ? '' : `<div class="group">${esc(label)} · ${list.length}</div>${list.map(button).join('')}`
+
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<title>${esc(component)} — gridwright</title>
+<title>Component library — gridwright</title>
 <style>
   :root { --ink:#1a1a1a; --muted:#6b6b6b; --line:#e6e3de; --bg:#fbfbfa; --panel:#fff;
           --ok:#16a34a; --warn:#d97706; --bad:#dc2626; --accent:#2563eb; }
@@ -149,14 +246,6 @@ function page(root: string, config: GridwrightConfig, run: RunState, all: RunSta
   .seg button[disabled] { opacity:.4; cursor:not-allowed; }
   .grow { flex:1; }
 
-  .runs { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 20px; padding-bottom:14px;
-          border-bottom:1px solid var(--line); }
-  .runs a { display:inline-flex; align-items:baseline; gap:7px; text-decoration:none;
-            padding:6px 11px; border:1px solid var(--line); border-radius:7px;
-            background:var(--panel); color:var(--muted); font-size:13px; }
-  .runs a:hover { border-color:var(--muted); color:var(--ink); }
-  .runs a.on { background:var(--ink); border-color:var(--ink); color:#fff; }
-  .runs a span { font-size:11.5px; opacity:.7; font-variant-numeric:tabular-nums; }
 
   .stage { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
   .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
@@ -196,85 +285,224 @@ function page(root: string, config: GridwrightConfig, run: RunState, all: RunSta
   pre { background:var(--panel); border:1px solid var(--line); border-radius:7px; padding:12px;
         overflow:auto; max-height:400px; font-size:12px; }
   .muted { color:var(--muted); }
+  /* The library rail. The dashboard used to be one run; this is the project. */
+  .shell { display:grid; grid-template-columns:250px 1fr; gap:26px; align-items:start; }
+  .rail { position:sticky; top:32px; max-height:calc(100vh - 64px); overflow:auto;
+          border:1px solid var(--line); border-radius:10px; background:var(--panel); padding:8px; }
+  .rail h2 { margin:6px 8px 8px; border:0; padding:0; }
+  .rail input { width:100%; padding:7px 9px; margin:0 0 8px; font:inherit; font-size:13px;
+                border:1px solid var(--line); border-radius:7px; background:var(--bg); }
+  .rail .group { color:var(--muted); font-size:10.5px; text-transform:uppercase;
+                 letter-spacing:.06em; margin:12px 8px 5px; font-weight:600; }
+  .rail button { display:flex; width:100%; align-items:baseline; gap:8px; text-align:left;
+                 border:0; background:none; font:inherit; font-size:13px; cursor:pointer;
+                 padding:7px 9px; border-radius:7px; color:var(--ink); }
+  .rail button:hover { background:var(--bg); }
+  .rail button.on { background:var(--ink); color:#fff; }
+  .rail button .pct { margin-left:auto; font-size:11.5px; font-variant-numeric:tabular-nums;
+                      opacity:.75; }
+  .rail button.on .pct { opacity:.9; }
+  .rail .none { color:var(--muted); padding:8px 9px; font-size:13px; }
+
+  .chips { display:flex; flex-wrap:wrap; gap:5px; margin:2px 0 0; }
+  .chips code { background:var(--panel); border:1px solid var(--line); border-radius:5px;
+                padding:2px 7px; }
+  .meta { display:flex; gap:20px; flex-wrap:wrap; font-size:12.5px; color:var(--muted);
+          margin-bottom:22px; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px;
+           font-weight:600; background:#eef3fd; color:var(--accent); vertical-align:2px; }
+  .badge.view { background:#f3eefd; color:#7c3aed; }
+  .badge.unreg { background:#fdf4e7; color:var(--warn); }
+  @media (max-width: 900px) { .shell { grid-template-columns:1fr; } .rail { position:static; max-height:none; } }
 </style></head><body><main>
 
-${switcher(run, all)}
-<h1>${esc(component)}</h1>
-<div class="sub">run <code>${esc(run.id)}</code> · node <code>${esc(run.source.nodeId)}</code>${
-  designWidth ? ` · design is ${Math.round(designWidth)}px wide` : ''}</div>
-
-${viewer(views, design)}
-${tokensSection(resolutions)}
-${detailsSection(ir, run, all)}
+<div class="shell">
+  <aside class="rail">
+    <h2>Library</h2>
+    <input id="filter" type="search" placeholder="Filter…" autocomplete="off">
+    <div id="list">
+      ${group('Modules', modules)}
+      ${group('Views', views)}
+      <div class="none" id="noMatch" hidden>Nothing matches.</div>
+    </div>
+  </aside>
+  <section id="detail"></section>
+</div>
 
 <p class="muted" style="margin-top:36px;font-size:12px">
-  Generated by gridwright. Images are inlined, so this file works on its own.
+  Generated by gridwright${config.library?.registry ? ` from <code>${esc(config.library.registry)}</code> and the frozen baselines` : ''}.
+  Images are inlined, so this file works on its own.
 </p>
 
 <script>
-const VIEWS = ${JSON.stringify(views.map((v) => ({
-    name: v.name, width: v.width, total: v.total,
-    render: v.render, diff: v.diff, hasReference: v.hasReference,
-    dimensions: v.dimensions,
-  })))};
-const DESIGN = ${JSON.stringify(design)};
-let vp = VIEWS.findIndex(v => v.hasReference);
-if (vp < 0) vp = 0;
+const LIBRARY = ${JSON.stringify(entries)};
+let cur = ${selected};
+let vp = 0;
 let mode = 'side';
 
-function render() {
-  const v = VIEWS[vp];
+function entry() { return LIBRARY[cur]; }
+
+function pickViewport() {
+  const e = entry();
+  const i = e.views.findIndex(v => v.hasReference);
+  vp = i >= 0 ? i : 0;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]);
+}
+
+function renderDetail() {
+  const e = entry();
+  const badge = e.mode === 'view'
+    ? '<span class="badge view">view</span>'
+    : '<span class="badge">module</span>';
+  const unreg = e.registered ? '' : ' <span class="badge unreg">not registered</span>';
+
+  const meta = [
+    e.path ? '<span><code>' + esc(e.path) + '</code></span>' : '',
+    e.node ? '<span>node <code>' + esc(e.node) + '</code></span>' : '',
+    e.designWidth ? '<span>design ' + Math.round(e.designWidth) + 'px wide</span>' : '',
+    e.runs ? '<span>' + e.runs + ' run' + (e.runs === 1 ? '' : 's') + '</span>' : '',
+    e.updatedAt ? '<span>' + esc(e.updatedAt.slice(0, 10)) + '</span>' : '',
+  ].filter(Boolean).join('');
+
+  document.getElementById('detail').innerHTML =
+    '<h1>' + esc(e.name) + ' ' + badge + unreg + '</h1>' +
+    '<div class="meta">' + meta + '</div>' +
+    viewerShell(e) +
+    surfaceSection(e) +
+    tokensSection(e) +
+    detailsSection(e);
+
+  const vpSeg = document.getElementById('vpSeg');
+  if (vpSeg) {
+    vpSeg.addEventListener('click', ev => {
+      const i = [...ev.currentTarget.children].indexOf(ev.target);
+      if (i >= 0) { vp = i; renderStage(); }
+    });
+    document.getElementById('modeSeg').addEventListener('click', ev => {
+      if (ev.target.dataset.mode && !ev.target.disabled) { mode = ev.target.dataset.mode; renderStage(); }
+    });
+    renderStage();
+  }
+}
+
+function viewerShell(e) {
+  if (e.views.length === 0) {
+    return '<h2>Comparison</h2><p class="muted">Not verified yet \u2014 run <code>gw verify</code>.</p>';
+  }
+  const buttons = e.views.map(v =>
+    '<button>' + esc(v.name) + ' ' + v.width + (v.hasReference ? ' \u25cf' : '') + '</button>').join('');
+  return '<h2>Comparison</h2>' +
+    '<div class="bar"><div class="seg" id="vpSeg">' + buttons + '</div>' +
+    '<div class="seg" id="modeSeg">' +
+    '<button data-mode="side">Side by side</button>' +
+    '<button data-mode="wipe">Drag to compare</button>' +
+    '<button data-mode="diff">Diff</button>' +
+    '<button data-mode="render">Render only</button></div></div>' +
+    (e.design ? '' : '<div class="note">No design image for this one \u2014 only the render is shown.</div>') +
+    '<div class="stage" id="stage"></div>';
+}
+
+function renderStage() {
+  const e = entry();
+  const v = e.views[vp];
   if (!v) return;
   document.querySelectorAll('#vpSeg button').forEach((b, i) => b.classList.toggle('on', i === vp));
   document.querySelectorAll('#modeSeg button').forEach(b => {
     b.classList.toggle('on', b.dataset.mode === mode);
-    // Nothing to compare against without a design at this width.
     // Comparing is always allowed. A render at another width is still worth
-    // seeing beside the design — it just is not a fidelity measurement, and
-    // the note says so.
-    b.disabled = !DESIGN && b.dataset.mode !== 'render';
+    // seeing beside the design \u2014 it just is not a fidelity measurement,
+    // and the note says so.
+    b.disabled = !e.design && b.dataset.mode !== 'render';
   });
 
-  const stage = document.getElementById('stage');
-  const warn = !v.hasReference && DESIGN
+  const warn = !v.hasReference && e.design
     ? '<div class="note"><b>' + v.width + 'px is not the width this frame was drawn at.</b> ' +
-      'Compare freely — the layout is meant to differ here — but the numbers below are not ' +
+      'Compare freely \u2014 the layout is meant to differ here \u2014 but the numbers below are not ' +
       'a fidelity measurement, because there is no design at this width to be faithful to. ' +
       'The viewport marked \u25cf is the one that is.</div>'
     : '';
 
+  const missing = '<div class="cols one"><div class="pane muted">No image for this viewport.</div></div>';
   let body;
-  if (!DESIGN) {
-    body = '<div class="cols one"><div class="pane"><h3>Render</h3><img src="' + v.render + '"></div></div>';
-  } else if (mode === 'render') {
-    body = '<div class="cols one"><div class="pane"><h3>Render · ' + v.width + 'px</h3><img src="' + v.render + '"></div></div>';
+  if (!v.render) {
+    body = missing;
+  } else if (!e.design || mode === 'render') {
+    body = '<div class="cols one"><div class="pane"><h3>Render \u00b7 ' + v.width + 'px</h3><img src="' + v.render + '"></div></div>';
   } else if (mode === 'side') {
     body = '<div class="cols">' +
-      '<div class="pane"><h3>Design · Figma</h3><img src="' + DESIGN + '"></div>' +
-      '<div class="pane"><h3>Render · ' + v.width + 'px</h3><img src="' + v.render + '"></div></div>';
+      '<div class="pane"><h3>Design \u00b7 Figma</h3><img src="' + e.design + '"></div>' +
+      '<div class="pane"><h3>Render \u00b7 ' + v.width + 'px</h3><img src="' + v.render + '"></div></div>';
   } else if (mode === 'wipe') {
     body = '<div class="pane"><h3>Drag to compare</h3><div class="wipe" id="wipe">' +
       '<img src="' + v.render + '">' +
-      '<img class="top" id="wipeTop" src="' + DESIGN + '">' +
+      '<img class="top" id="wipeTop" src="' + e.design + '">' +
       '<span class="tag l">render</span><span class="tag r">design</span>' +
       '<div class="handle" id="wipeH"></div></div></div>';
   } else {
     body = v.diff
-      ? '<div class="pane"><h3>Diff · red is different, grey is masked text</h3><img src="' + v.diff + '"></div>'
-      : '<div class="cols one"><div class="pane muted">No diff for this viewport.</div></div>';
+      ? '<div class="pane"><h3>Diff \u00b7 red is different, grey is masked text</h3><img src="' + v.diff + '"></div>'
+      : '<div class="cols one"><div class="pane muted">No diff kept for this viewport.</div></div>';
   }
 
-  stage.innerHTML = warn + body + verdict(v);
-  if (mode === 'wipe' && v.hasReference) setupWipe();
+  document.getElementById('stage').innerHTML = warn + body + verdict(v);
+  if (mode === 'wipe' && e.design && v.render) setupWipe();
 }
 
 function verdict(v) {
+  if (v.dimensions.length === 0) {
+    return '<div class="verdict"><span>' + v.total + '%</span>' +
+      '<span class="muted" style="flex:1"></span>' +
+      '<span class="muted">from the registry \u2014 the run\'s detail is gone</span></div>';
+  }
   const parts = v.dimensions.map(d => d.unavailable
     ? '<span class="na">' + d.dimension + ': not measured</span>'
     : '<span>' + d.dimension + ': <b>' + d.score + '%</b></span>');
   return '<div class="verdict">' + parts.join('') +
     '<span class="muted" style="flex:1"></span>' +
-    '<span class="muted">the numbers are evidence, not a verdict \\u2014 what you see decides</span></div>';
+    '<span class="muted">the numbers are evidence, not a verdict \u2014 what you see decides</span></div>';
+}
+
+function surfaceSection(e) {
+  if (e.props.length === 0 && e.tokens.length === 0) return '';
+  const chips = list => '<div class="chips">' + list.map(x => '<code>' + esc(x) + '</code>').join('') + '</div>';
+  return '<h2>Surface</h2>' +
+    (e.props.length ? '<p class="muted" style="margin:0 0 6px">Props</p>' + chips(e.props) : '') +
+    (e.tokens.length ? '<p class="muted" style="margin:14px 0 6px">Tokens it uses \u00b7 ' + e.tokens.length + '</p>' + chips(e.tokens) : '');
+}
+
+function tokensSection(e) {
+  if (e.resolutions.length === 0) return '';
+  const n = b => e.resolutions.filter(r => r.bucket === b).length;
+  const rows = e.resolutions.map(r =>
+    '<tr><td><span class="tag-b t-' + esc(r.bucket) + '">' + esc(r.bucket) + '</span></td>' +
+    '<td><code>' + esc(r.value) + '</code></td>' +
+    '<td>' + (r.token ? '<code>' + esc(r.token) + '</code>' : '<span class="muted">\u2014</span>') + '</td>' +
+    '<td class="muted">' + esc(r.note) + '</td></tr>').join('');
+  return '<h2>How its values resolved</h2>' +
+    '<p class="muted">' + n('exact') + ' already in the system \u00b7 ' + n('near') +
+    ' using the system\'s value \u00b7 ' + n('new') + ' new</p>' +
+    '<details><summary>All ' + e.resolutions.length + '</summary>' +
+    '<table><tr><th>bucket</th><th>design value</th><th>system token</th><th>note</th></tr>' +
+    rows + '</table></details>';
+}
+
+function detailsSection(e) {
+  if (e.stages.length === 0 && e.warnings.length === 0) return '';
+  const stages = e.stages.map(s =>
+    '<tr><td><code>' + esc(s.name) + '</code></td><td>' + esc(s.status) +
+    '</td><td class="muted">' + esc(s.reason) + '</td></tr>').join('');
+  const warnings = e.warnings.length
+    ? '<table>' + e.warnings.map(w =>
+        '<tr><td>' + esc(w.severity) + '</td><td>' + esc(w.message) + '</td></tr>').join('') + '</table>'
+    : '<p class="muted">No warnings from distill.</p>';
+  return '<h2>The run that built it</h2>' +
+    (e.runId ? '<p class="muted">' + esc(e.runId) + '</p>' : '') +
+    '<details><summary>Distill warnings</summary>' + warnings + '</details>' +
+    (stages ? '<details><summary>Stages</summary><table>' + stages + '</table></details>' : '');
 }
 
 function setupWipe() {
@@ -294,127 +522,56 @@ function setupWipe() {
   box.addEventListener('touchmove', e => move(e.touches[0].clientX), { passive: true });
 }
 
-document.getElementById('vpSeg').addEventListener('click', e => {
-  const i = [...e.currentTarget.children].indexOf(e.target);
-  if (i >= 0) { vp = i; render(); }
+document.getElementById('list').addEventListener('click', e => {
+  const b = e.target.closest('button[data-i]');
+  if (!b) return;
+  document.querySelectorAll('#list button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  cur = Number(b.dataset.i);
+  mode = 'side';
+  pickViewport();
+  renderDetail();
+  window.scrollTo({ top: 0 });
 });
-document.getElementById('modeSeg').addEventListener('click', e => {
-  if (e.target.dataset.mode && !e.target.disabled) { mode = e.target.dataset.mode; render(); }
+
+document.getElementById('filter').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  let shown = 0;
+  document.querySelectorAll('#list button[data-i]').forEach(b => {
+    const hit = !q || b.dataset.name.includes(q);
+    b.hidden = !hit;
+    if (hit) shown++;
+  });
+  document.querySelectorAll('#list .group').forEach(g => {
+    let n = 0;
+    for (let el = g.nextElementSibling; el && el.tagName === 'BUTTON'; el = el.nextElementSibling) {
+      if (!el.hidden) n++;
+    }
+    g.hidden = n === 0;
+  });
+  document.getElementById('noMatch').hidden = shown > 0;
 });
-render();
+
+pickViewport();
+renderDetail();
 </script>
 </main></body></html>`
 }
 
-function viewer(views: ViewportView[], design: string | null): string {
-  if (views.length === 0) {
-    return `<h2>Comparison</h2><p class="muted">Not verified yet — run <code>gw verify</code>.</p>`
+/** Hands the file to the desktop rather than starting a server.
+ *
+ *  The page inlines every image for exactly this reason: a `file://` URL with
+ *  no origin cannot fetch a sibling PNG, and a dashboard that needs a server to
+ *  look at is one nobody looks at. */
+function openInBrowser(file: string): void {
+  const cmd = process.platform === 'darwin' ? 'open'
+    : process.platform === 'win32' ? 'start'
+    : 'xdg-open'
+  try {
+    execFileSync(cmd, [file], { stdio: 'ignore' })
+  } catch {
+    console.log(dim('  Could not open a browser here \u2014 the path above is the page.'))
   }
-
-  const vpButtons = views.map((v) => {
-    // The dot marks the width the design was drawn at — the one where the
-    // numbers mean something.
-    const mark = v.hasReference ? ' ●' : ''
-    return `<button>${esc(v.name)} ${v.width}${mark}</button>`
-  }).join('')
-
-  return `<h2>Comparison</h2>
-<div class="bar">
-  <div class="seg" id="vpSeg">${vpButtons}</div>
-  <div class="seg" id="modeSeg">
-    <button data-mode="side">Side by side</button>
-    <button data-mode="wipe">Drag to compare</button>
-    <button data-mode="diff">Diff</button>
-    <button data-mode="render">Render only</button>
-  </div>
-</div>
-${design ? '' : '<div class="note">No design image on this run — only the render is shown. `gw build` fetches it from Figma.</div>'}
-<div class="stage" id="stage"></div>`
-}
-
-function tokensSection(resolutions: Resolution[]): string {
-  if (resolutions.length === 0) return ''
-  const counts = {
-    exact: resolutions.filter((r) => r.bucket === 'exact').length,
-    near: resolutions.filter((r) => r.bucket === 'near').length,
-    new: resolutions.filter((r) => r.bucket === 'new').length,
-  }
-  const rows = resolutions.map((r) => `<tr>
-      <td><span class="tag-b t-${r.bucket}">${r.bucket}</span></td>
-      <td><code>${esc(r.raw.value.slice(0, 60))}</code></td>
-      <td>${r.match ? `<code>${esc(r.match.name)}</code>` : '<span class="muted">—</span>'}</td>
-      <td class="muted">${esc(r.note ?? '')}</td>
-    </tr>`).join('')
-
-  return `<h2>Tokens</h2>
-<p class="muted">${counts.exact} already in the system · ${counts.near} using the system's value · ${counts.new} new</p>
-<details><summary>All ${resolutions.length}</summary>
-<table><tr><th>bucket</th><th>design value</th><th>system token</th><th>note</th></tr>${rows}</table>
-</details>`
-}
-
-/**
- * Links to every other run that has a page.
- *
- * The dashboard was one file, overwritten on every run, with the other runs
- * listed in a history table as text. So the only component you could look at
- * was the last one built — in a project with fifty of them, that is not a
- * dashboard, it is a receipt.
- *
- * Ordinary links rather than a script: these are sibling files, and `file://`
- * navigates between them without a server, which is the whole reason the
- * images are inlined in the first place.
- *
- * Grouped by component, most recently built first, because that is how someone
- * looks for one: by what it is called, not by the id of the run that made it.
- */
-function switcher(current: RunState, all: RunState[]): string {
-  const withScore = all.filter((r) => r.stages.verify.output?.score)
-  if (withScore.length < 2) return ''
-
-  const seen = new Set<string>()
-  const items = withScore.map((r) => {
-    const name = componentName(r)
-    // Older runs of the same component stay reachable, but the name is only
-    // spelled out once: after that they are the run id.
-    const label = seen.has(name) ? r.id : name
-    seen.add(name)
-    const score = (r.stages.verify.output?.score as RunScore | undefined)
-    const best = score?.viewports.find((v) => v.viewport === 'design') ?? null
-    const pct = best ? `${Math.round(best.total)}%` : score ? `${Math.round(score.total)}%` : ''
-    const on = r.id === current.id ? ' class="on"' : ''
-    return `<a href="${esc(r.id)}.html"${on}>${esc(label)}<span>${esc(pct)}</span></a>`
-  })
-
-  return `<nav class="runs">${items.join('')}</nav>`
-}
-
-function detailsSection(ir: IR | null, run: RunState, all: RunState[]): string {
-  const stages = Object.entries(run.stages)
-    .filter(([, s]) => s.status !== 'pending')
-    .map(([name, s]) => `<tr><td><code>${esc(name)}</code></td><td>${esc(s.status)}</td>
-      <td class="muted">${esc(s.reason ?? '')}</td></tr>`).join('')
-
-  const warnings = ir?.warnings.length
-    ? `<table>${ir.warnings.slice(0, 12).map((w) =>
-        `<tr><td>${esc(w.severity)}</td><td>${esc(w.message)}</td></tr>`).join('')}</table>`
-    : '<p class="muted">No warnings from distill.</p>'
-
-  const history = all.length > 1
-    ? `<details><summary>History · ${all.length} runs</summary><table>${
-        all.slice(0, 15).map((r) => {
-          const s = (r.stages.verify.output?.score as RunScore | undefined)?.total
-          return `<tr><td><code>${esc(r.id)}</code></td><td>${esc(r.name)}</td>
-            <td>${s !== undefined ? `${s}%` : '<span class="muted">—</span>'}</td>
-            <td class="muted">${esc(r.stage)}</td></tr>`
-        }).join('')}</table></details>`
-    : ''
-
-  return `<h2>Details</h2>
-<details><summary>Distill warnings${ir ? ` · hash ${esc(ir.hash)}` : ''}</summary>${warnings}</details>
-<details><summary>Stages</summary><table>${stages}</table></details>
-${ir ? `<details><summary>The IR</summary><pre>${esc(JSON.stringify(ir, null, 2))}</pre></details>` : ''}
-${history}`
 }
 
 /** A run's screenshot, falling back to the shared directory for runs taken
@@ -422,13 +579,6 @@ ${history}`
 function shot(root: string, runId: string, file: string): string | null {
   return inlineImage(join(paths.runVerify(root, runId), file))
     ?? inlineImage(join(paths.verify(root), file))
-}
-
-/** Figma's export: from the frozen baseline first, then from the run. */
-function findDesign(root: string, run: RunState): string | null {
-  const name = componentName(run)
-  return inlineImage(join(paths.baselines(root), `${name}.design.png`))
-    ?? inlineImage(paths.reference(root, run.id))
 }
 
 /** The name the codebase uses, not the Figma frame's. */
