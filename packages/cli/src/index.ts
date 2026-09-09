@@ -47,7 +47,7 @@ const HELP = `${bold('gw')} — gridwright
     gw library ensure [--approve]
     gw library register --component <path>
     gw golden [--approve]      freeze the regression baseline — ${dim('human gate')}
-    gw report                  write the dashboard
+    gw report [--open]         write the dashboard, and open it
 
   ${bold('Verification')}
     gw verify --component <path> --figma "<url>"
@@ -184,7 +184,7 @@ async function main(): Promise<void> {
       })
 
     case 'report':
-      return runReport(root, { run: args.values.get('run') })
+      return runReport(root, { run: args.values.get('run'), open: args.flags.has('open') })
 
     case 'done':
       return done(root, transitionArgs(args))

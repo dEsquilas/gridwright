@@ -15,6 +15,7 @@
  * directory months later, on a machine with nothing installed.
  */
 
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -40,9 +41,33 @@ export function runReport(root: string, args: ReportArgs): void {
   ok(`Dashboard written to ${out}`)
   console.log(dim('  Side by side, drag to compare, and the diff — the design is in there now.'))
 
+  // The flag existed and did nothing: it was declared, parsed, and never read,
+  // so `gw report --open` printed a path and left you to find it yourself.
+  if (args.open) openInBrowser(out)
+  else console.log(dim(`  open ${out}`))
+
   if (run.stage === 'report') {
     advance(run, 'report', { status: 'done', output: { file: out } })
     saveState(root, run)
+  }
+}
+
+/**
+ * Hands the file to the desktop rather than starting a server.
+ *
+ * The page inlines every image as a data URI for exactly this reason: a
+ * `file://` URL with no origin cannot fetch a sibling PNG, and a dashboard
+ * that needs a server to look at is one nobody looks at.
+ */
+function openInBrowser(file: string): void {
+  const cmd = process.platform === 'darwin' ? 'open'
+    : process.platform === 'win32' ? 'start'
+    : 'xdg-open'
+  try {
+    execFileSync(cmd, [file], { stdio: 'ignore' })
+  } catch {
+    // Headless, or no desktop. The path was already printed above.
+    console.log(dim('  Could not open a browser here — the path above is the page.'))
   }
 }
 
