@@ -39,7 +39,25 @@ describe('distill — roles and content', () => {
   const flat = (ns = ir.children): any[] => ns.flatMap((n) => [n, ...flat(n.children ?? [])])
 
   it('detects the image by its fill', () => {
-    expect(flat().find((n) => n.role === 'image')).toMatchObject({ asset: 'hero-background.png' })
+    expect(flat().find((n) => n.role === 'image')).toMatchObject({ role: 'image', name: 'Hero Background' })
+  })
+
+  // The IR names the file `extractAssets` wrote, keyed by node id, rather than
+  // deriving a name of its own. The two derivations disagreed — the manifest
+  // prefixes with the frame's slug and the IR did not — so a component built
+  // from the IR referenced a file that was not there.
+  it('names the asset the extraction actually wrote', () => {
+    const { ir: withAssets } = distill(fixture('hero-auto-layout'), SOURCE, {
+      ...OPTS,
+      assets: new Map([['3978:35300', 'hero-about-us-hero-background.png']]),
+    })
+    const all = (ns: any[]): any[] => ns.flatMap((n) => [n, ...all(n.children ?? [])])
+    expect(all(withAssets.children).find((n) => n.role === 'image')?.asset)
+      .toBe('hero-about-us-hero-background.png')
+  })
+
+  it('claims no asset when the extraction produced none', () => {
+    expect(flat().find((n) => n.role === 'image')?.asset).toBeUndefined()
   })
 
   it('computes the reduced aspect ratio', () => {

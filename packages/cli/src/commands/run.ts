@@ -171,7 +171,7 @@ async function runDistill(root: string, state: RunState): Promise<void> {
   const { ir, measurements, rawTokens } = distill(
     doc,
     { fileKey: state.source.fileKey, nodeId: state.source.nodeId },
-    config.distill,
+    { ...config.distill, assets: assetFiles(root, state.id) },
   )
 
   writeFileSync(paths.ir(root, state.id), JSON.stringify(ir, null, 2) + '\n')
@@ -293,3 +293,16 @@ function fmtBytes(n: number): string {
 }
 
 export { requireConfig, isImplemented }
+
+/** What `fetch` wrote, keyed by the Figma node it came from, so the IR can
+ *  name the file rather than guess at it. */
+function assetFiles(root: string, runId: string): Map<string, string> {
+  const file = join(paths.runAssets(root, runId), 'manifest.json')
+  if (!existsSync(file)) return new Map()
+  try {
+    const m = JSON.parse(readFileSync(file, 'utf8')) as { assets: Array<{ nodeId: string; file: string }> }
+    return new Map(m.assets.map((a) => [a.nodeId, a.file]))
+  } catch {
+    return new Map()
+  }
+}

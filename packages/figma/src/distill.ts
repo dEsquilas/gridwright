@@ -26,6 +26,16 @@ import type { FigmaAxisAlign, FigmaColor, FigmaEffect, FigmaNode, FigmaPaint } f
 export interface DistillOptions {
   maxAbsoluteNodes: number
   maxDepth: number
+  /**
+   * Figma node id → the file `extractAssets` actually wrote, so the IR names
+   * something that exists on disk.
+   *
+   * Derived independently before, and the two derivations disagreed: the
+   * manifest prefixes with the frame's slug, the IR did not, so the IR said
+   * `content.svg` for a file called `wrapper-full-content.svg`. A component
+   * built from that references nothing.
+   */
+  assets?: Map<string, string>
 }
 
 export interface DistillResult {
@@ -281,11 +291,18 @@ function walk(node: FigmaNode, ctx: Ctx, parentPath: string, depth: number): IRN
     if (role === 'heading') out.level = headingLevel(node)
   }
 
-  if (role === 'image') {
-    out.asset = `${slugify(node.name)}.png`
+  if (role === 'image' || role === 'icon') {
+    const file = ctx.opts.assets?.get(node.id)
+    if (file) out.asset = file
     const box = node.absoluteBoundingBox
     if (box && box.width > 0 && box.height > 0) out.ratio = aspectRatio(box.width, box.height)
   }
+
+  // A drawing is one node. `findImageTargets` exports the outermost vector and
+  // stops; the IR has to stop at the same place, or the illustration appears
+  // twice — once as the frame that owns the asset and once as the `Vector`
+  // inside it, both claiming to be the same picture.
+  if (isVectorArtwork(node)) return out
 
   ctx.labelChain.push(out.label)
   const kids = (node.children ?? [])
@@ -517,6 +534,13 @@ function detectRole(node: FigmaNode): IRRole {
     return isHeadingish(node) ? 'heading' : 'text'
   }
   if (hasImageFill(node)) return 'image'
+  // A drawing, not a box. Reported as `unknown` before, which reads as nothing
+  // in particular — and the `bg` its fill produced made an envelope
+  // illustration look like a coloured rectangle.
+  if (isVectorArtwork(node)) {
+    const box = node.absoluteBoundingBox
+    return Math.max(box?.width ?? 0, box?.height ?? 0) <= 48 ? 'icon' : 'image'
+  }
   if (/\bicon\b|^ic[-_]/.test(n)) return 'icon'
   if (/\bbutton\b|\bbtn\b|\bcta\b/.test(n)) return 'button'
   if (/\binput\b|\bfield\b|\btextarea\b/.test(n)) return 'input'
@@ -544,6 +568,47 @@ function headingLevel(node: FigmaNode): number {
   if (size >= 22) return 4
   return 5
 }
+
+/**
+ * The node types Figma uses for a drawing rather than a box.
+ *
+ * Everything in here is artwork: a logo, an illustration, an icon that was
+ * drawn instead of set in an icon font.
+ */
+const VECTOR_TYPES = new Set([
+  'VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'LINE', 'ELLIPSE', 'POLYGON', 'REGULAR_POLYGON',
+])
+
+/**
+ * Whether this node is a drawing.
+ *
+ * A group or frame whose whole subtree is vectors counts as one: an
+ * illustration is fourteen `<path>` nodes in Figma and one file in a
+ * component. Anything with text in it is a layout, not a drawing, however
+ * decorative it looks.
+ */
+export function isVectorArtwork(node: FigmaNode): boolean {
+  if (node.visible === false) return false
+  if (VECTOR_TYPES.has(node.type)) return true
+  if (node.type !== 'GROUP' && node.type !== 'FRAME') return false
+  const kids = (node.children ?? []).filter((c) => c.visible !== false)
+  return kids.length > 0 && kids.every(isVectorArtwork)
+}
+
+/**
+ * Frames with images, and drawings.
+ *
+ * When a node has a direct image fill we export THAT node and stop recursing:
+ * also capturing its children would duplicate the same bitmap. A vector is the
+ * same idea one level up — the outermost node that is nothing but vectors is
+ * the drawing, and its paths are not fourteen separate assets.
+ *
+ * Vectors were not looked for at all until a real frame came through with a
+ * hand-drawn envelope in it. Nothing failed: `extractAssets` reported zero
+ * assets, and the IR described the illustration as a container with a
+ * background colour — which is what a box looks like, so the component got
+ * built without it.
+ */
 
 export function hasImageFill(node: FigmaNode): boolean {
   return (node.fills ?? []).some((f: FigmaPaint) => f.type === 'IMAGE' && f.visible !== false)
