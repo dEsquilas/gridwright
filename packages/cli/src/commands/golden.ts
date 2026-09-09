@@ -47,8 +47,12 @@ export function runGolden(root: string, args: GoldenArgs): void {
     )
   }
 
-  const shots = config.verify.viewports
-    .map((v) => ({ viewport: v.name, file: shotFor(root, run.id, v.name) }))
+  // Every viewport the score has, not the configured ones. `verify` adds the
+  // design's own width on top of them, and that is the one viewport where the
+  // comparison means anything — freezing all the others and not that one left
+  // the dashboard with no render to put beside the design.
+  const shots = score.viewports
+    .map((v) => ({ viewport: v.viewport, file: shotFor(root, run.id, v.viewport) }))
     .filter((s) => existsSync(s.file))
 
   if (shots.length === 0) {
@@ -67,9 +71,15 @@ export function runGolden(root: string, args: GoldenArgs): void {
   // Figma's export, kept alongside the renders. It lived in `runs/` until now,
   // which is gitignored, so there was no record of what the component was
   // built against once the run was cleaned up.
+  //
+  // Named `.figma.png`, not `.design.png`. The renders are frozen as
+  // `<Name>.<viewport>.png`, and `verify` renders a viewport called `design` —
+  // so the design's export and the render at the design's width claimed the
+  // same filename. The design won, and the dashboard put it in both panes:
+  // side by side showed a perfect match because it was one image twice.
   const reference = paths.reference(root, run.id)
   if (existsSync(reference)) {
-    const dest = join(dir, `${name}.design.png`)
+    const dest = join(dir, `${name}.figma.png`)
     copyFileSync(reference, dest)
     frozen.push(relative(root, dest))
   }
@@ -84,7 +94,8 @@ export function runGolden(root: string, args: GoldenArgs): void {
 
   ok(`Saved ${frozen.length} image${frozen.length === 1 ? '' : 's'}`)
   for (const f of frozen) {
-    const what = f.endsWith('.design.png') ? dim('  ← the design, for reference') : ''
+    const what = f.endsWith('.figma.png') ? dim('  ← the design, for reference')
+      : f.endsWith('.design.png') ? dim("  ← the render at the design's own width") : ''
     console.log(`    ${dim('·')} ${f}${what}`)
   }
   if (test) console.log(`    ${dim('·')} ${test} ${dim('(new)')}`)
@@ -190,8 +201,13 @@ function shotFor(root: string, runId: string, viewport: string): string {
 }
 
 function spec(config: GridwrightConfig, run: RunState, name: string): string {
-  const viewports = config.verify.viewports
-    .map((v) => `  { name: '${v.name}', width: ${v.width}, height: ${v.height} },`)
+  // Every viewport that has a baseline, including the design's own width. A
+  // frozen image no test looks at is dead weight.
+  const score = run.stages.verify.output?.score as RunScore | undefined
+  const heights = new Map(config.verify.viewports.map((v) => [v.name, v.height]))
+  const tallest = Math.max(...config.verify.viewports.map((v) => v.height), 900)
+  const viewports = (score?.viewports ?? [])
+    .map((v) => `  { name: '${v.viewport}', width: ${v.width}, height: ${heights.get(v.viewport) ?? tallest} },`)
     .join('\n')
 
   return `import { test, expect } from '@playwright/test'

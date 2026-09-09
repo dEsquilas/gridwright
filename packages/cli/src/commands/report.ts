@@ -184,8 +184,7 @@ function entryFor(
     total: v.total,
     // The frozen baseline first: it is per component and it is committed, so it
     // is still there long after the run that made it was cleaned up.
-    render: inlineImage(join(paths.baselines(root), `${name}.${v.viewport}.png`))
-      ?? (run ? shot(root, run.id, `${v.viewport}.png`) : null),
+    render: renderImage(root, name, v.viewport, run),
     diff: run ? shot(root, run.id, `${v.viewport}-diff.png`) : null,
     // Within 10%: a 1440 render against a 1440 frame is the same layout, a
     // 375 render against it is a different one.
@@ -208,8 +207,7 @@ function entryFor(
     props: reg?.props ?? [],
     tokens: reg?.tokens ?? [],
     designWidth,
-    design: inlineImage(join(paths.baselines(root), `${name}.design.png`))
-      ?? (run ? inlineImage(paths.reference(root, run.id)) : null),
+    design: designImage(root, name, run),
     views,
     warnings: (ir?.warnings ?? []).slice(0, 12).map((w) => ({ severity: w.severity, message: w.message })),
     resolutions: (resolutions ?? []).map((r) => ({
@@ -590,6 +588,39 @@ function openInBrowser(file: string): void {
   } catch {
     console.log(dim('  Could not open a browser here \u2014 the path above is the page.'))
   }
+}
+
+/**
+ * Figma's export: the frozen one first, then the run's.
+ *
+ * `.figma.png` rather than `.design.png`, which is what it was called until it
+ * collided with the render frozen for the viewport named `design`. A baseline
+ * directory written before the rename still has the old name and it still
+ * holds the design, so it is read — but only as the design.
+ */
+function designImage(root: string, name: string, run: RunState | null): string | null {
+  return inlineImage(join(paths.baselines(root), `${name}.figma.png`))
+    ?? inlineImage(join(paths.baselines(root), `${name}.design.png`))
+    ?? (run ? inlineImage(paths.reference(root, run.id)) : null)
+}
+
+/**
+ * The component as it renders, at one viewport.
+ *
+ * The frozen baseline first: it is per component and committed, so it is still
+ * there long after the run that made it was cleaned up. The exception is a
+ * legacy `<Name>.design.png` with no `<Name>.figma.png` beside it — that file
+ * is the design, not a render, and reading it here is what put the same image
+ * in both panes and made a component look like a perfect match.
+ */
+function renderImage(root: string, name: string, viewport: string, run: RunState | null): string | null {
+  const legacy = viewport === 'design'
+    && !existsSync(join(paths.baselines(root), `${name}.figma.png`))
+  if (!legacy) {
+    const frozen = inlineImage(join(paths.baselines(root), `${name}.${viewport}.png`))
+    if (frozen) return frozen
+  }
+  return run ? shot(root, run.id, `${viewport}.png`) : null
 }
 
 /** A run's screenshot, falling back to the shared directory for runs taken
