@@ -1,6 +1,8 @@
 /** CLI output. No dependencies: the ANSI codes are four lines, and a colour
  *  library is supply-chain surface we do not need. */
 
+import { createInterface } from 'node:readline'
+
 const isTTY = process.stdout.isTTY && !process.env.NO_COLOR
 const c = (code: string) => (s: string) => (isTTY ? `\x1b[${code}m${s}\x1b[0m` : s)
 
@@ -40,6 +42,28 @@ export function missingCredentials(): never {
   console.error(dim('  Get one at figma.com/developers/api#access-tokens with read scope'))
   console.error(dim('  (file_content:read).'))
   process.exit(1)
+}
+
+/**
+ * Asks a question and reads a line, offering a default.
+ *
+ * Setup is the one place gridwright is allowed to ask. Everything else is
+ * inferred from the repo or decided by a stage — but a project's directory
+ * vocabulary is genuinely ambiguous, and guessing at it silently is how a
+ * header ends up filed as a page module.
+ *
+ * Returns the default unchanged when there is no TTY, so `gw init` still works
+ * in CI and in a script.
+ */
+export function promptLine(question: string, fallback: string): Promise<string> {
+  if (!process.stdin.isTTY) return Promise.resolve(fallback)
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout })
+    rl.question(question, (answer) => {
+      rl.close()
+      resolve(answer.trim() || fallback)
+    })
+  })
 }
 
 const CTRL_C = '\u0003'

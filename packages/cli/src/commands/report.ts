@@ -593,13 +593,15 @@ function openInBrowser(file: string): void {
 /**
  * Figma's export: the frozen one first, then the run's.
  *
- * `.figma.png` rather than `.design.png`, which is what it was called until it
- * collided with the render frozen for the viewport named `design`. A baseline
- * directory written before the rename still has the old name and it still
- * holds the design, so it is read — but only as the design.
+ * `<Name>/figma.png` rather than a flat `<Name>.design.png`, which is what it
+ * was called until it collided with the render frozen for the viewport named
+ * `design`. Baselines written before the folders still read, because they are
+ * committed and nobody should have to regenerate them to look at a page.
  */
 function designImage(root: string, name: string, run: RunState | null): string | null {
-  return inlineImage(join(paths.baselines(root), `${name}.figma.png`))
+  return inlineImage(join(paths.baseline(root, name), 'figma.png'))
+    // Flat names, from before each thing got a folder.
+    ?? inlineImage(join(paths.baselines(root), `${name}.figma.png`))
     ?? inlineImage(join(paths.baselines(root), `${name}.design.png`))
     ?? (run ? inlineImage(paths.reference(root, run.id)) : null)
 }
@@ -614,6 +616,13 @@ function designImage(root: string, name: string, run: RunState | null): string |
  * in both panes and made a component look like a perfect match.
  */
 function renderImage(root: string, name: string, viewport: string, run: RunState | null): string | null {
+  const own = inlineImage(join(paths.baseline(root, name), `${viewport}.png`))
+  if (own) return own
+
+  // Flat names, from before each thing got a folder. The exception is a
+  // `<Name>.design.png` with no `<Name>.figma.png` beside it: that file is the
+  // design, not a render, and reading it here is what put the same image in
+  // both panes and made a component look like a perfect match.
   const legacy = viewport === 'design'
     && !existsSync(join(paths.baselines(root), `${name}.figma.png`))
   if (!legacy) {

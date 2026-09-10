@@ -17,6 +17,7 @@ import {
   FigmaClient, FigmaError, parseFigmaUrl, distill, shouldHalt, extractAssets,
   toPascalCase, slugify, type FigmaNode,
 } from '@gridwright/figma'
+import { inferKind } from '@gridwright/library'
 import { ok, fail, info, warn, step, dim, bold, green, yellow, table, missingCredentials } from '../ui.js'
 import { autorun, printStop } from './autorun.js'
 
@@ -243,6 +244,11 @@ export function printNext(root: string, state: RunState | null, opts: { json: bo
     reference: existsSync(paths.reference(root, run.id)) ? paths.reference(root, run.id) : undefined,
     assets: existsSync(paths.runAssets(root, run.id)) ? paths.runAssets(root, run.id) : undefined,
     survey: existsSync(paths.survey(root, run.id)) ? paths.survey(root, run.id) : undefined,
+    // What kind of thing this is, and therefore where it goes. A heuristic on
+    // the frame's name — the only signal there is before anything is built,
+    // and a good one: nobody names a modal "Section". `plan` is a person's
+    // step and overrides it, which is why a guess is allowed here.
+    placement: placementInputFor(root, run),
   }, loadConfig(root)?.conventions)
 
   if (opts.json) { console.log(JSON.stringify(d, null, 2)); return }
@@ -293,6 +299,15 @@ function fmtBytes(n: number): string {
 }
 
 export { requireConfig, isImplemented }
+
+/** The directory this run's output belongs in, from what the design is called. */
+function placementInputFor(root: string, run: RunState): { kind: string; dir: string } | undefined {
+  const placements = loadConfig(root)?.conventions?.placements
+  if (!placements?.length) return undefined
+  const kind = inferKind(run.name, run.mode)
+  const match = placements.find((p) => p.kind === kind)
+  return match ? { kind, dir: match.dir } : undefined
+}
 
 /** What `fetch` wrote, keyed by the Figma node it came from, so the IR can
  *  name the file rather than guess at it. */

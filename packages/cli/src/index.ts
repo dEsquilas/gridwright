@@ -29,7 +29,7 @@ const HELP = `${bold('gw')} — gridwright
     gw auth logout             remove the saved credential
 
   ${bold('Project')}
-    gw init [--force]          configure this repo
+    gw init [--force] [--yes]  set up this repo: framework, tokens, library, placements
 
   ${bold('Run')}
     gw build <figma-url>       open a run and run every automatic stage
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
       return fail(`\`gw auth ${args.sub}\` does not exist.`, 'Options: login, status, logout')
 
     case 'init':
-      return init(root, { force: args.flags.has('force') })
+      return init(root, { force: args.flags.has('force'), yes: args.flags.has('yes') })
 
     case 'build': {
       const url = args.positional[0]

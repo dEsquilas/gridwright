@@ -18,6 +18,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, extname, join, relative, resolve } from 'node:path'
+import { detectPlacements, type Placement } from './placement.js'
 
 export interface ComponentShape {
   /** Where this kind of component lives, relative to the project root. */
@@ -60,6 +61,8 @@ export interface Conventions {
    * Inferred by looking, like everything else here.
    */
   importExtension: string
+  /** Where each kind of thing goes. See `placement.ts`. */
+  placements: Placement[]
   /** Docs the project keeps about its own conventions. `author` should read
    *  these before writing: they carry the rules no amount of file-shape
    *  inference will find. */
@@ -93,6 +96,7 @@ export function detectConventions(root: string): Conventions {
     shapes: sorted,
     breakpoints: findBreakpoints(root),
     importExtension: detectImportExtension(root, sorted),
+    placements: detectPlacements(root),
     docs: findDocs(root),
   }
 }

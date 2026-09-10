@@ -198,6 +198,13 @@ export function directive(
   // because every check gridwright has is about fidelity to the design.
   if ((stage === 'author' || stage === 'plan') && conventions) {
     base.inputs.conventions = conventions
+
+    // The one entry that applies arrives in `inputs.placement`, decided by the
+    // caller — the taxonomy lives in `library`, and core cannot depend on it.
+    // `plan` proposes a path and `author` writes the file, and both were
+    // choosing from a list of directories with nothing to say which was for
+    // what, so a header, a modal and a view all went where the most files
+    // already were.
   }
 
   if (!isImplemented(stage)) {

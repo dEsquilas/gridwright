@@ -12,6 +12,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, extname } from 'node:path'
 import type { Framework, GridwrightConfig } from '@gridwright/core'
 
+export * from './placement.js'
+
 export interface RegistryEntry {
   path: string
   /** A module or a whole view. The library is browsed by this before anything

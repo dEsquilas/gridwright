@@ -45,6 +45,17 @@ export interface GridwrightConfig {
      *  the barrel gridwright writes has to obey the same rule as the files
      *  around it. */
     importExtension?: string
+    /**
+     * Where each kind of thing goes: a page module, a whole view, a layout
+     * part, a primitive, an overlay.
+     *
+     * `shapes` says how a file in a directory is written; this says what the
+     * directory is *for*. Without it everything landed in whichever directory
+     * had the most files, so a header, a modal and a view were all filed as
+     * page modules — which is not untidiness, it is what stops a component
+     * library being browsable at about forty entries.
+     */
+    placements?: Array<{ kind: string; dir: string; from: string; alternatives?: string[] }>
     /** Docs the project keeps about its own rules. `author` reads these first —
      *  they carry what no amount of file-shape inference will find. */
     docs: string[]

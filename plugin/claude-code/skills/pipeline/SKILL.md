@@ -186,6 +186,24 @@ the design system instead of just producing a file.
 no layout to extract. Report it and stop. Rebuilding it by eye from the
 reference image is the exact failure this pipeline exists to prevent.
 
+**`inputs.placement` says where this goes, and what it is.** A header is not a
+page module, a modal is not a page module, and a whole view is not one either
+— but they all used to land in whichever directory had the most files in it.
+
+```json
+"placement": { "kind": "layout", "dir": "templates/partials" }
+```
+
+The kind comes from what the design is called, which is a heuristic and is
+sometimes wrong. `plan` is the step where a person decides, so say what you
+think it is and why: "the frame is called *Bandeau newsletter*, I read that as
+a module, not a layout part". If nobody corrects you, use the directory you
+were given.
+
+`conventions.placements` holds the whole map, including the directories the
+project does not have yet. One that does not exist is an intention, not an
+error — create it when you have something to put in it.
+
 **Write the code this repo would write.** `inputs.conventions` carries the
 shapes found in the project — where each kind of component lives, how its file
 is laid out, how it exports, and what else every file of that kind exports.

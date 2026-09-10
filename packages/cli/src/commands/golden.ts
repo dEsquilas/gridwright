@@ -4,12 +4,16 @@
  * Two images are saved, and calling both of them "the baseline" is the mistake
  * this file exists to avoid.
  *
- * `<Name>.design.png` is Figma's own export: what the component was built
- * against. It answered "did I build it right?" once, and it is kept because
- * otherwise there is no record of what was being aimed at — until now it lived
- * in `runs/`, which is gitignored, and vanished with the run.
+ * Each thing gets a folder — `baselines/<Name>/` — because five loose files
+ * per component is two hundred images in one directory by the fortieth, and
+ * nothing about the flat names said which belonged together.
  *
- * `<Name>.<viewport>.png` is a screenshot of the component itself. That is the
+ * `figma.png` is Figma's own export: what the component was built against. It
+ * answered "did I build it right?" once, and it is kept because otherwise
+ * there is no record of what was being aimed at — it lived in `runs/`, which
+ * is gitignored, and vanished with the run.
+ *
+ * `<viewport>.png` is a screenshot of the component itself. That is the
  * regression baseline, and it is what runs in CI: "this is how it looked when
  * you accepted it, tell me when it changes."
  *
@@ -64,7 +68,10 @@ export function runGolden(root: string, args: GoldenArgs): void {
   // baselines, and none of those names is what the component is called.
   const name = componentName(run) ?? run.name
 
-  const dir = paths.baselines(root)
+  // Its own folder. Flat names put five files per component in one directory,
+  // and put the design's export in the same namespace as the render frozen for
+  // the viewport called `design`, where they collided.
+  const dir = paths.baseline(root, name)
   mkdirSync(dir, { recursive: true })
   const frozen: string[] = []
 
@@ -72,20 +79,20 @@ export function runGolden(root: string, args: GoldenArgs): void {
   // which is gitignored, so there was no record of what the component was
   // built against once the run was cleaned up.
   //
-  // Named `.figma.png`, not `.design.png`. The renders are frozen as
-  // `<Name>.<viewport>.png`, and `verify` renders a viewport called `design` —
-  // so the design's export and the render at the design's width claimed the
-  // same filename. The design won, and the dashboard put it in both panes:
-  // side by side showed a perfect match because it was one image twice.
+  // Called `figma.png`, not `design.png`. `verify` renders a viewport called
+  // `design` — the width the frame was drawn at — so under flat names the
+  // design's export and the render at that width claimed the same file. The
+  // design won, and the dashboard put it in both panes: side by side showed a
+  // perfect match because it was one image twice.
   const reference = paths.reference(root, run.id)
   if (existsSync(reference)) {
-    const dest = join(dir, `${name}.figma.png`)
+    const dest = join(dir, 'figma.png')
     copyFileSync(reference, dest)
     frozen.push(relative(root, dest))
   }
 
   for (const s of shots) {
-    const dest = join(dir, `${name}.${s.viewport}.png`)
+    const dest = join(dir, `${s.viewport}.png`)
     copyFileSync(s.file, dest)
     frozen.push(relative(root, dest))
   }
@@ -94,8 +101,8 @@ export function runGolden(root: string, args: GoldenArgs): void {
 
   ok(`Saved ${frozen.length} image${frozen.length === 1 ? '' : 's'}`)
   for (const f of frozen) {
-    const what = f.endsWith('.figma.png') ? dim('  ← the design, for reference')
-      : f.endsWith('.design.png') ? dim("  ← the render at the design's own width") : ''
+    const what = f.endsWith('figma.png') ? dim('  ← the design, for reference')
+      : f.endsWith('design.png') ? dim("  ← the render at the design's own width") : ''
     console.log(`    ${dim('·')} ${f}${what}`)
   }
   if (test) console.log(`    ${dim('·')} ${test} ${dim('(new)')}`)
@@ -234,7 +241,7 @@ for (const vp of VIEWPORTS) {
     await page.goto('/${name}')
     await page.evaluate(() => document.fonts.ready)
 
-    await expect(page).toHaveScreenshot(\`${name}.\${vp.name}.png\`, {
+    await expect(page).toHaveScreenshot(\`\${vp.name}.png\`, {
       // Fonts and antialiasing differ between machines; the threshold absorbs
       // that without hiding a real layout change.
       maxDiffPixelRatio: 0.01,

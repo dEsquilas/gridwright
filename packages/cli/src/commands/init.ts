@@ -14,10 +14,10 @@ import {
   DEFAULT_CONFIG, writeConfig, configPath, loadConfig, validateConfig,
   gitignoreBlock, paths, type GridwrightConfig, type Framework,
 } from '@gridwright/core'
-import { detectConventions } from '@gridwright/library'
-import { ok, info, warn, fail, dim, table, bold } from '../ui.js'
+import { detectConventions, KIND_LABEL, type Placement } from '@gridwright/library'
+import { ok, info, warn, fail, dim, table, bold, green, confirm, promptLine } from '../ui.js'
 
-export function init(root: string, opts: { force?: boolean } = {}): void {
+export async function init(root: string, opts: { force?: boolean; yes?: boolean } = {}): Promise<void> {
   if (existsSync(configPath(root)) && !opts.force) {
     const existing = loadConfig(root)
     warn(`${configPath(root)} already exists`)
@@ -41,7 +41,16 @@ export function init(root: string, opts: { force?: boolean } = {}): void {
   // Where a component goes is half the question; how it is written is the
   // other half, and the answer is in the components already there.
   const conventions = detectConventions(root)
-  if (conventions.shapes.length > 0 || conventions.docs.length > 0) {
+
+  // The one thing gridwright is allowed to ask about. Everything else here is
+  // inferred, because a question whose answer is in the repo is a question that
+  // goes stale. A project's directory vocabulary is not in the repo in any
+  // reliable way: `modules`, `blocks`, `sections`, `partials`, `layouts` — every
+  // ecosystem picks a few and no two pick the same few, and guessing silently
+  // is how a header ends up filed as a page module.
+  conventions.placements = await setupPlacements(conventions.placements, opts.yes ?? false)
+
+  if (conventions.shapes.length > 0 || conventions.docs.length > 0 || conventions.placements.length > 0) {
     config.conventions = conventions
   }
 
@@ -55,6 +64,60 @@ export function init(root: string, opts: { force?: boolean } = {}): void {
   ok(`Wrote ${path}`)
   showConfig(config)
   console.log(dim('\n  Review it before the first run: all of this is data, not code (Law 9).'))
+}
+
+/**
+ * Confirms where each kind of thing goes, and asks about what was not found.
+ *
+ * Shown as a list rather than asked one blind question at a time: the answers
+ * are related — someone who puts modules in `blocks/` rarely puts views in
+ * `views/` — and seeing the set is what makes the odd one out obvious.
+ *
+ * A directory that does not exist yet is fine and is not created here. It is
+ * an intention, and `author` makes it when there is finally something to put
+ * in it.
+ */
+async function setupPlacements(detected: Placement[], acceptAll: boolean): Promise<Placement[]> {
+  const found = detected.filter((p) => p.from === 'found')
+  const missing = detected.filter((p) => p.from !== 'found')
+
+  console.log()
+  console.log(`  ${bold('Where each kind of thing goes')}`)
+  for (const p of detected) {
+    const mark = p.from === 'found' ? green('found') : dim('  new')
+    console.log(`    ${mark}  ${p.dir.padEnd(26)} ${dim(KIND_LABEL[p.kind])}`)
+    // The runner-up is often the right answer and the tool cannot tell: a repo
+    // with both `templates/layouts` and `templates/partials` keeps its page
+    // shell in one and its header and footer in the other.
+    if (p.alternatives?.length) {
+      console.log(dim(`             or ${p.alternatives.join(', ')}`))
+    }
+  }
+
+  if (acceptAll || !process.stdin.isTTY) {
+    if (missing.length > 0) {
+      console.log(dim(`\n  ${missing.length} of these do not exist yet — they are created when something needs them.`))
+      console.log(dim('  Change any of them in gridwright.config.json (Law 9).'))
+    }
+    return detected
+  }
+
+  console.log()
+  const change = await confirm('  Change any of these?')
+  if (!change) {
+    console.log(dim(`  Kept. ${found.length} found in the repo, ${missing.length} proposed.`))
+    return detected
+  }
+
+  console.log(dim('\n  Enter to keep, or type a path relative to the project root.'))
+  const out: Placement[] = []
+  for (const p of detected) {
+    console.log(dim(`\n  ${KIND_LABEL[p.kind]}`))
+    if (p.alternatives?.length) console.log(dim(`    also found: ${p.alternatives.join(', ')}`))
+    const answer = await promptLine(`    ${p.dir} ${dim('→')} `, p.dir)
+    out.push(answer === p.dir ? p : { kind: p.kind, dir: answer.replace(/^\.?\//, ''), from: 'asked' })
+  }
+  return out
 }
 
 function showConfig(c: GridwrightConfig): void {
@@ -71,6 +134,9 @@ function showConfig(c: GridwrightConfig): void {
   for (const s of c.conventions?.shapes ?? []) {
     const extras = s.alsoExports.length ? ` + ${s.alsoExports.join(', ')}` : ''
     console.log(dim(`    ${s.dir.padEnd(22)} ${s.file}  ${s.export}${extras}  (${s.seenIn})`))
+  }
+  for (const p of c.conventions?.placements ?? []) {
+    console.log(dim(`    ${p.kind.padEnd(10)} ${p.dir}`))
   }
   if (c.conventions?.breakpoints?.length) {
     console.log(dim(`    breakpoints: ${c.conventions.breakpoints.map((b) => b.name).join(' ')}`))

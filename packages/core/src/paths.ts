@@ -28,6 +28,16 @@ export const paths = {
   manifest: (r: string, id: string) => join(r, GW_DIR, 'runs', id, 'manifest.json'),
   // baselines lives outside runs/ precisely because it outlives the run
   baselines: (r: string) => join(r, GW_DIR, 'baselines'),
+  /**
+   * One folder per thing, holding its own images.
+   *
+   * They were flat — `<Name>.figma.png`, `<Name>.mobile.png` — which is five
+   * files per component in one directory, so a project with forty of them has
+   * two hundred loose images and no way to see what belongs to what. It also
+   * put the design's export and the render at the design's width in the same
+   * namespace, where they collided.
+   */
+  baseline: (r: string, name: string) => join(r, GW_DIR, 'baselines', name),
   dashboard: (r: string) => join(r, GW_DIR, 'dashboard'),
   /** Screenshots and diffs from the last `gw verify` outside a run — a loose
    *  calibration against a Figma URL, which belongs to no run. */
