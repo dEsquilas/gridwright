@@ -28,6 +28,7 @@ import {
   activeRun, advance, loadConfig, loadState, paths, saveState,
   type Framework, type GridwrightConfig, type RunScore, type RunState,
 } from '@gridwright/core'
+import { inferKind } from '@gridwright/library'
 import { ok, fail, info, warn, dim, bold, green, yellow } from '../ui.js'
 
 export interface GoldenArgs {
@@ -135,8 +136,19 @@ export function runGolden(root: string, args: GoldenArgs): void {
   info(`Now on ${green(run.stage)}`)
 }
 
-function testPath(config: GridwrightConfig, name: string): string {
-  return join(config.library.dir, '__tests__', `${name}.regression.spec.ts`)
+/**
+ * Beside the thing it tests, not in one global directory.
+ *
+ * Every spec used to land in `config.library.dir/__tests__/`, which is where
+ * the primitives live — so a view's regression test was filed under the button
+ * folder. The placement knows where this kind of thing goes; the test goes
+ * with it.
+ */
+function testPath(config: GridwrightConfig, run: RunState, name: string): string {
+  const kind = run.mode === 'view' ? 'view' : inferKind(run.name)
+  const dir = config.conventions?.placements?.find((p) => p.kind === kind)?.dir
+    ?? config.library.dir
+  return join(dir, '__tests__', `${name}.regression.spec.ts`)
 }
 
 /**
@@ -157,13 +169,13 @@ function writeRegressionTest(
   run: RunState,
   name: string,
 ): string | null {
-  const rel = testPath(config, name)
+  const rel = testPath(config, run, name)
   const abs = join(root, rel)
   if (existsSync(abs)) return null
   if (!hasPlaywright(root)) return null
 
   mkdirSync(dirname(abs), { recursive: true })
-  writeFileSync(abs, spec(config, run, name))
+  writeFileSync(abs, spec(config, run, name, snapshotPrefix(root, rel, name)))
   return rel
 }
 
@@ -207,7 +219,21 @@ function shotFor(root: string, runId: string, viewport: string): string {
   return existsSync(own) ? own : join(paths.verify(root), `${viewport}.png`)
 }
 
-function spec(config: GridwrightConfig, run: RunState, name: string): string {
+/**
+ * Where the frozen images sit, relative to Playwright's snapshot directory.
+ *
+ * `toHaveScreenshot('mobile.png')` resolves under
+ * `<specfile>.ts-snapshots/`, which is not where `golden` freezes anything —
+ * so the test generated its own snapshots on first run and every image this
+ * stage saved was decorative. Passing a path walks it back to the baselines,
+ * which is what makes the two halves of Law 7 the same artifact.
+ */
+function snapshotPrefix(root: string, specRel: string, name: string): string {
+  const snapshotDir = join(root, `${specRel}-snapshots`)
+  return relative(snapshotDir, paths.baseline(root, name)).replace(/\\/g, '/')
+}
+
+function spec(config: GridwrightConfig, run: RunState, name: string, snapshots: string): string {
   // Every viewport that has a baseline, including the design's own width. A
   // frozen image no test looks at is dead weight.
   const score = run.stages.verify.output?.score as RunScore | undefined
@@ -241,7 +267,8 @@ for (const vp of VIEWPORTS) {
     await page.goto('/${name}')
     await page.evaluate(() => document.fonts.ready)
 
-    await expect(page).toHaveScreenshot(\`\${vp.name}.png\`, {
+    // The images gw golden froze, not a set this test invents on first run.
+    await expect(page).toHaveScreenshot(\`${snapshots}/\${vp.name}.png\`, {
       // Fonts and antialiasing differ between machines; the threshold absorbs
       // that without hiding a real layout change.
       maxDiffPixelRatio: 0.01,

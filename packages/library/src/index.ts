@@ -142,7 +142,18 @@ export function registerComponent(
   mkdirSync(dirname(registryPath), { recursive: true })
   writeFileSync(registryPath, JSON.stringify(sortKeys(registry), null, 2) + '\n')
 
-  const barrelLine = addToBarrel(root, config, name, input.componentPath, input.exportShape)
+  // A view is registered but never exported. The barrel exists so someone can
+  // write `import { Button } from '@/components/ui'`; a view is a leaf — it
+  // composes, and nothing composes it. That holds well beyond one framework: a
+  // page is a route in Next, in Nuxt, in Astro, and in a CMS it is not even a
+  // JavaScript module. Barrelling it produced a line that either nobody used
+  // or nobody could resolve.
+  //
+  // It still gets a registry entry and its baselines, which is what makes it
+  // show up in the library beside everything else.
+  const barrelLine = input.mode === 'view'
+    ? undefined
+    : addToBarrel(root, config, name, input.componentPath, input.exportShape)
   return {
     entry,
     ...(previous && previous[0] !== input.name ? { updatedExisting: previous[0] } : {}),

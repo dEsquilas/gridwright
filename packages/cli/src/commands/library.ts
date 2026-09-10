@@ -123,6 +123,9 @@ export function runRegister(root: string, args: LibraryArgs): void {
     ok(`Registered ${bold(name)}`)
   }
   if (result.barrelLine) console.log(`    ${dim(result.barrelLine)}`)
+  else if (run.mode === 'view') {
+    console.log(dim('    Not exported: a view is a leaf, nothing imports it.'))
+  }
 
   advance(run, 'library:register', {
     status: 'done',
