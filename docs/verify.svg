@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 682" width="900" height="682">
+  <defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+    <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity=".28"/>
+  </filter></defs>
+<g transform="translate(0 0)">
+  <rect x="0" y="0" width="900" height="390" rx="11" fill="#1d1f21" stroke="#000000" stroke-opacity=".35" filter="url(#shadow)"/>
+  <path d="M0 11a11 11 0 0 1 11-11h878a11 11 0 0 1 11 11v27H0z" fill="#2f3134"/>
+  <line x1="0" y1="38" x2="900" y2="38" stroke="#000" stroke-opacity=".35"/>
+  <circle cx="22" cy="19.0" r="6" fill="#ff5f57"/>
+  <circle cx="42" cy="19.0" r="6" fill="#febc2e"/>
+  <circle cx="62" cy="19.0" r="6" fill="#28c840"/>
+  <text x="450.0" y="23.0" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="12" fill="#b9b9b9" text-anchor="middle">gw verify — the ruler, and what it names</text>
+  <text x="26.0" y="67" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#7ee787" font-weight="600" xml:space="preserve">$ </text>
+  <text x="41.6" y="67" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">gw verify</text>
+  <text x="26.0" y="87" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve"></text>
+  <text x="26.0" y="107" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#f5bd4f" xml:space="preserve">    ! mobile   </text>
+  <text x="143.3" y="107" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">54.86%</text>
+  <text x="26.0" y="127" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#f5bd4f" xml:space="preserve">    ! tablet   </text>
+  <text x="143.3" y="127" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">54.04%</text>
+  <text x="26.0" y="147" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#f5bd4f" xml:space="preserve">    ! desktop  </text>
+  <text x="143.3" y="147" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">72.26%</text>
+  <text x="26.0" y="167" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#33c85a" font-weight="600" xml:space="preserve">    ✓ design   </text>
+  <text x="143.3" y="167" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">90.14%</text>
+  <text x="26.0" y="187" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve"></text>
+  <text x="26.0" y="207" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#33c85a" font-weight="600" xml:space="preserve">✓ design (1920px) — 90.14%</text>
+  <text x="26.0" y="227" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">    structural: </text>
+  <text x="151.1" y="227" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#5ac8fa" xml:space="preserve">82.52%</text>
+  <text x="198.0" y="227" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">  (100% of the design matched, 3 collapsed)</text>
+  <text x="26.0" y="247" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">      • LoremIpsumDolor — height off by -18px</text>
+  <text x="26.0" y="267" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">      • Text — height off by -14px</text>
+  <text x="26.0" y="287" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">    chromatic:  </text>
+  <text x="151.1" y="287" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#33c85a" font-weight="600" xml:space="preserve">100%</text>
+  <text x="26.0" y="307" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">    perceptual: </text>
+  <text x="151.1" y="307" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#5ac8fa" xml:space="preserve">95.51%</text>
+  <text x="26.0" y="327" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve"></text>
+  <text x="26.0" y="347" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">  </text>
+  <text x="41.6" y="347" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">The worst viewport decides the run, never the average (Law 6).</text>
+  <text x="26.0" y="367" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">  </text>
+  <text x="41.6" y="367" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">Only </text>
+  <text x="80.7" y="367" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">design</text>
+  <text x="127.7" y="367" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve"> has a frame to be faithful to.</text>
+</g>
+<g transform="translate(0 412)">
+  <rect x="0" y="0" width="900" height="270" rx="11" fill="#1d1f21" stroke="#000000" stroke-opacity=".35" filter="url(#shadow)"/>
+  <path d="M0 11a11 11 0 0 1 11-11h878a11 11 0 0 1 11 11v27H0z" fill="#2f3134"/>
+  <line x1="0" y1="38" x2="900" y2="38" stroke="#000" stroke-opacity=".35"/>
+  <circle cx="22" cy="19.0" r="6" fill="#ff5f57"/>
+  <circle cx="42" cy="19.0" r="6" fill="#febc2e"/>
+  <circle cx="62" cy="19.0" r="6" fill="#28c840"/>
+  <text x="450.0" y="23.0" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="12" fill="#b9b9b9" text-anchor="middle">gw golden — one folder per thing, kept</text>
+  <text x="26.0" y="67" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#7ee787" font-weight="600" xml:space="preserve">$ </text>
+  <text x="41.6" y="67" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">gw golden</text>
+  <text x="26.0" y="87" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve"></text>
+  <text x="26.0" y="107" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#33c85a" font-weight="600" xml:space="preserve">✓ </text>
+  <text x="41.6" y="107" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">Saved 5 images</text>
+  <text x="26.0" y="127" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">    · .gridwright/baselines/NewsletterBanner/figma.png   </text>
+  <text x="471.7" y="127" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">← the design</text>
+  <text x="26.0" y="147" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">    · .gridwright/baselines/NewsletterBanner/mobile.png</text>
+  <text x="26.0" y="167" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">    · .gridwright/baselines/NewsletterBanner/tablet.png</text>
+  <text x="26.0" y="187" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">    · .gridwright/baselines/NewsletterBanner/desktop.png</text>
+  <text x="26.0" y="207" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">    · .gridwright/baselines/NewsletterBanner/design.png  </text>
+  <text x="471.7" y="207" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">← the render</text>
+  <text x="26.0" y="227" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve"></text>
+  <text x="26.0" y="247" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">  </text>
+  <text x="41.6" y="247" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">These are committed, unlike runs/ — they are test code (Law 7).</text>
+</g>
+</svg>

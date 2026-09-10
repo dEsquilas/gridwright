@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 642" width="900" height="642">
+  <defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+    <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity=".28"/>
+  </filter></defs>
+<g transform="translate(0 0)">
+  <rect x="0" y="0" width="900" height="410" rx="11" fill="#1d1f21" stroke="#000000" stroke-opacity=".35" filter="url(#shadow)"/>
+  <path d="M0 11a11 11 0 0 1 11-11h878a11 11 0 0 1 11 11v27H0z" fill="#2f3134"/>
+  <line x1="0" y1="38" x2="900" y2="38" stroke="#000" stroke-opacity=".35"/>
+  <circle cx="22" cy="19.0" r="6" fill="#ff5f57"/>
+  <circle cx="42" cy="19.0" r="6" fill="#febc2e"/>
+  <circle cx="62" cy="19.0" r="6" fill="#28c840"/>
+  <text x="450.0" y="23.0" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="12" fill="#b9b9b9" text-anchor="middle">Recommended — hand it to the agent</text>
+  <text x="26.0" y="67" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve"># In the repo where the component will live, ask Claude Code:</text>
+  <text x="26.0" y="87" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve"></text>
+  <text x="26.0" y="107" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#7ee787" font-weight="600" xml:space="preserve">$ </text>
+  <text x="41.6" y="107" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">claude</text>
+  <text x="26.0" y="127" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve"></text>
+  <text x="26.0" y="147" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#5ac8fa" xml:space="preserve">&gt; </text>
+  <text x="41.6" y="147" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">Install gridwright and set it up for this project.</text>
+  <text x="26.0" y="167" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">  </text>
+  <text x="41.6" y="167" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">Then build </text>
+  <text x="127.7" y="167" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#5ac8fa" xml:space="preserve">https://figma.com/design/…?node-id=1-61744</text>
+  <text x="26.0" y="187" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve"></text>
+  <text x="26.0" y="207" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">  </text>
+  <text x="41.6" y="207" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">I'll install the CLI and the plugin, then run the pipeline.</text>
+  <text x="26.0" y="227" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve"></text>
+  <text x="26.0" y="247" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#33c85a" font-weight="600" xml:space="preserve">  ⏺ </text>
+  <text x="57.3" y="247" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">npm i -g @gridwright/cli</text>
+  <text x="26.0" y="267" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#33c85a" font-weight="600" xml:space="preserve">  ⏺ </text>
+  <text x="57.3" y="267" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">/plugin install gridwright@gridwright</text>
+  <text x="26.0" y="287" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#33c85a" font-weight="600" xml:space="preserve">  ⏺ </text>
+  <text x="57.3" y="287" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">gw init</text>
+  <text x="26.0" y="307" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#33c85a" font-weight="600" xml:space="preserve">  ⏺ </text>
+  <text x="57.3" y="307" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">gw build "https://figma.com/design/…"</text>
+  <text x="26.0" y="327" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve"></text>
+  <text x="26.0" y="347" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#f5bd4f" xml:space="preserve">  ! </text>
+  <text x="57.3" y="347" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">The Figma token is missing. Run this yourself:</text>
+  <text x="26.0" y="367" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c58af9" xml:space="preserve">      ! gw auth login</text>
+  <text x="26.0" y="387" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">    </text>
+  <text x="57.3" y="387" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">A token that goes through the chat is compromised (Law 10).</text>
+</g>
+<g transform="translate(0 432)">
+  <rect x="0" y="0" width="900" height="210" rx="11" fill="#1d1f21" stroke="#000000" stroke-opacity=".35" filter="url(#shadow)"/>
+  <path d="M0 11a11 11 0 0 1 11-11h878a11 11 0 0 1 11 11v27H0z" fill="#2f3134"/>
+  <line x1="0" y1="38" x2="900" y2="38" stroke="#000" stroke-opacity=".35"/>
+  <circle cx="22" cy="19.0" r="6" fill="#ff5f57"/>
+  <circle cx="42" cy="19.0" r="6" fill="#febc2e"/>
+  <circle cx="62" cy="19.0" r="6" fill="#28c840"/>
+  <text x="450.0" y="23.0" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="12" fill="#b9b9b9" text-anchor="middle">Manual — you drive</text>
+  <text x="26.0" y="67" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#7ee787" font-weight="600" xml:space="preserve">$ </text>
+  <text x="41.6" y="67" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">npm i -g @gridwright/cli</text>
+  <text x="26.0" y="87" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#7ee787" font-weight="600" xml:space="preserve">$ </text>
+  <text x="41.6" y="87" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">gw auth login</text>
+  <text x="26.0" y="107" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">  Figma token: </text>
+  <text x="143.3" y="107" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8c8c8c" xml:space="preserve">••••••••••••••••</text>
+  <text x="26.0" y="127" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#33c85a" font-weight="600" xml:space="preserve">✓ </text>
+  <text x="41.6" y="127" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">Saved to ~/.config/gridwright/credentials.json (0600)</text>
+  <text x="26.0" y="147" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve"></text>
+  <text x="26.0" y="167" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#7ee787" font-weight="600" xml:space="preserve">$ </text>
+  <text x="41.6" y="167" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">cd my-project &amp;&amp; gw init</text>
+  <text x="26.0" y="187" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#7ee787" font-weight="600" xml:space="preserve">$ </text>
+  <text x="41.6" y="187" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#e6e6e6" font-weight="600" xml:space="preserve">gw build "https://figma.com/design/…?node-id=1-61744"</text>
+</g>
+</svg>
