@@ -53,18 +53,18 @@
   <text x="518" y="167" font-size="11.5" fill="#c2c2c2">three dimensions on every</text>
   <text x="518" y="184" font-size="11.5" fill="#c2c2c2">viewport. Worst one wins.</text>
 
-  <line x1="690" y1="144" x2="728" y2="144" stroke="#8c8c8c" stroke-width="1.6" marker-end="url(#a)"/>
+  <line x1="690" y1="144" x2="712" y2="144" stroke="#8c8c8c" stroke-width="1.6" marker-end="url(#a)"/>
 
-  <!-- 4 -->
-  <rect x="730" y="96" width="130" height="96" rx="9" fill="#26282b" stroke="#3a3d41" stroke-width="1.5"/>
-  <circle cx="752" cy="118" r="10" fill="#8c8c8c"/>
-  <text x="752" y="122" font-size="11" font-weight="700" fill="#26282b" text-anchor="middle">4</text>
-  <text x="770" y="123" font-size="13.5" font-weight="600" fill="#e6e6e6">score</text>
-  <text x="748" y="152" font-size="12" fill="#33c85a">evidence, not a gate</text>
-  <text x="748" y="176" font-size="12" fill="#f5bd4f">the person decides</text>
+  <!-- 4 — wider than the others: its two lines are prose, not a label. -->
+  <rect x="716" y="96" width="144" height="96" rx="9" fill="#26282b" stroke="#3a3d41" stroke-width="1.5"/>
+  <circle cx="738" cy="118" r="10" fill="#8c8c8c"/>
+  <text x="738" y="122" font-size="11" font-weight="700" fill="#26282b" text-anchor="middle">4</text>
+  <text x="756" y="123" font-size="13.5" font-weight="600" fill="#e6e6e6">score</text>
+  <text x="734" y="152" font-size="11.5" fill="#33c85a">evidence, not a gate</text>
+  <text x="734" y="176" font-size="11.5" fill="#f5bd4f">the person decides</text>
 
   <!-- feedback -->
-  <path d="M795 194 L795 232 L364 232 L364 196" fill="none" stroke="#f5bd4f" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#r)"/>
+  <path d="M788 194 L788 232 L364 232 L364 196" fill="none" stroke="#f5bd4f" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#r)"/>
   <rect x="452" y="216" width="256" height="32" rx="6" fill="#33291a" stroke="#f0d9b5" stroke-width="1"/>
   <text x="580" y="237" font-size="11.5" fill="#f5bd4f" text-anchor="middle">refine --focus=structural · hard cap of 4</text>
 

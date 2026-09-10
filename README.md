@@ -247,10 +247,11 @@ and halts.
 
 ![The pipeline: sixteen stages from auth through report, colour-coded by who runs each one — deterministic code, Claude, or you. A bar on the left marks the two human gates.](docs/pipeline.svg)
 
-**Two human gates: `tokens`, and `library:ensure` on the first run.** A gate is
-for what is expensive to undo. A badly generated component is rewritten in ten
-minutes; a contaminated token system is inherited forever, and creating
-structure in someone's repo is invasive exactly once.
+**Three human gates: `init`, `tokens` and `library:ensure`.** A gate is for
+what is expensive to undo, and all three write something into a repo that
+outlives the run: the configuration, the design system, the library's
+structure. A badly generated component is rewritten in ten minutes; a
+contaminated token system is inherited forever.
 
 Everything else runs to the end. The pipeline builds the component, freezes the
 baselines and registers it, and *then* a person judges the result — because it
