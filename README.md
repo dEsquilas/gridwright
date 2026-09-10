@@ -5,7 +5,6 @@ component registered in the project's design system comes out. Driven from
 Claude Code.
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-16a34a)](LICENSE)
-![status: all 5 phases built](https://img.shields.io/badge/status-all%205%20phases%20built-16a34a)
 ![tests: 184](https://img.shields.io/badge/tests-184%20passing-16a34a)
 
 > **The design comes in as a node and leaves as a system.**
@@ -14,15 +13,6 @@ Claude Code.
 > one node at a time. Every run leaves the repo with more resolved tokens, more
 > registered components and more verified surface. If a component turns out fine
 > but contributed nothing to the system, the run failed.
-
-**Status: all five phases built, and the component path run end to end on a
-real project.** A Figma node goes in; a component comes out registered in the
-library, with its design and its render frozen side by side and a score at the
-width the frame was drawn at — 90% on the one it has built so far.
-
-What that does not mean is finished. View mode has been built but barely run,
-and nothing here has shipped to production yet. See
-[known gaps](#known-gaps).
 
 ---
 
@@ -36,7 +26,7 @@ looks simple. **A prompt is a suggestion.**
 Gridwright inverts the split. The state machine lives on disk and a CLI enforces
 it. Claude does not decide which stage comes next: it asks.
 
-![The control loop: gw next returns a directive, Claude does the creative work, gw verify measures, and the score decides whether the run advances or refines. state.json on disk is the single source of truth.](docs/protocol.svg)
+![The control loop: gw next returns a directive, Claude does the creative work, gw verify measures, and the score is evidence a person reads rather than a gate. state.json on disk is the single source of truth.](docs/protocol.svg)
 
 ```console
 $ gw next --json
@@ -62,6 +52,11 @@ The split of labour is explicit:
 
 If it can be checked with an assert, the model does not do it. If it needs
 judgment about code that already exists, the program does not do it.
+
+The measuring was built before the generating, deliberately. A generative
+pipeline without a calibrated metric is a text generator with extra steps: you
+cannot tell a good run from a bad one, so you cannot close the loop. The ruler
+first, then the factory.
 
 ---
 
@@ -93,6 +88,11 @@ for verify, `sharp` for assets, `odiff` for the perceptual diff, `ts-morph` and
 ---
 
 ## Install
+
+> **Not on npm yet.** Until it is published, both routes below mean cloning
+> this repo and linking the binary — `pnpm install && pnpm build && pnpm link
+> --global` from the root. The commands are written as they will read once
+> there is a package.
 
 There are two ways in, and the recommended one is not the one you type.
 
@@ -147,7 +147,7 @@ And in Claude Code, the plugin:
 
 ## A run, step by step
 
-Four commands, and only one of them is yours to think about.
+Four steps. Only the first asks you anything.
 
 ![Two terminal windows. `gw init` prints where each kind of thing goes — modules, views, layout parts, primitives, overlays — marking what it found in the repo and what it is proposing, then asks whether to change any of it. `gw build` fetches the node, extracts one SVG asset, distills 140KB into a 4KB IR, resolves all 16 design values against tokens the project already has, and stops at `plan`.](docs/run.svg)
 
@@ -203,7 +203,7 @@ just expensive: it produces **worse** results, because the model latches onto
 the `absoluteBoundingBox` values it sees and writes `position: absolute`. The
 distillation always sits between Figma and the model.
 
-![Why the IR exists: a raw Figma tree of 2,000-5,000 nodes and about 312KB is distilled into a 120-line semantic IR of about 4KB, 99% smaller. Auto-layout maps to flex and variants map to props. A frame without auto-layout halts the pipeline.](docs/distill.svg)
+![Why the IR exists: a raw Figma tree of thousands of nodes and hundreds of kilobytes is distilled into a semantic IR of about 4KB. Auto-layout maps to flex and variants map to props. A frame without auto-layout halts the pipeline.](docs/distill.svg)
 
 ```json
 {
@@ -245,7 +245,7 @@ and halts.
 
 ## The stages
 
-![The pipeline: sixteen stages from auth through report, colour-coded by who runs each one — deterministic code, Claude, or you. A bar on the left marks the two human gates.](docs/pipeline.svg)
+![The pipeline: fifteen stages from init to report, plus auth as a precondition, colour-coded by who runs each one — deterministic code, Claude, or you. A bar on the left marks the three human gates.](docs/pipeline.svg)
 
 **Three human gates: `init`, `tokens` and `library:ensure`.** A gate is for
 what is expensive to undo, and all three write something into a repo that
@@ -257,9 +257,10 @@ Everything else runs to the end. The pipeline builds the component, freezes the
 baselines and registers it, and *then* a person judges the result — because it
 was going to be built either way, and what is left is the adjustments.
 
-Three stages are mandatory and cannot be skipped even with a reason — `tokens`,
-`library:ensure` and `library:register`. They are the ones that build the
-system, and therefore the ones a hurried agent would skip first.
+A different three cannot be skipped at all, reason or no reason: `tokens`,
+`library:ensure` and `library:register`. Those are the stages that turn a run
+into a contribution to the design system rather than just a file — and
+therefore the first ones a hurried agent would drop.
 
 And note the ordering of 4 and 8: **tokens are written before the component.**
 The other way round, the model writes `bg-[#1a1a1a]` and someone has to
@@ -301,12 +302,11 @@ drawn at is always rendered and always marked. The worst viewport still decides
 whether a run passes (Law 6) — if it breaks on mobile it is broken — but the
 report says which number means what.
 
-**The score is evidence, not a verdict.** The pipeline runs to the end and a
-person judges the result, because the component gets built and registered
-either way and what is left is the adjustments. `gw report` is the page that
-decision gets made on: every module and view the project has, and for each one
-the design beside the render — side by side, drag to compare, or the diff —
-with the props it takes, the tokens it uses, and how its values resolved.
+**The score is evidence, not a verdict**, and `gw report` is the page it gets
+read on: every module and view the project has, and for each one the design
+beside the render — side by side, drag to compare, or the diff — with the props
+it takes, the tokens it uses, and how its values resolved. A percentage cannot
+tell you whether a component is right. Two pictures and a slider can.
 
 ---
 
@@ -331,23 +331,6 @@ exist for anybody but the person who ran it (Law 7).
 
 ---
 
-## Roadmap
-
-| Phase | What | Status |
-|---|---|---|
-| 0 | The spec | ✅ [`specs/001-pipeline.md`](specs/001-pipeline.md) |
-| 1 | CLI, state machine, `fetch`, `distill` | ✅ |
-| 2 | `verify` with Playwright, on a hand-written component | ✅ |
-| 3 | Claude Code plugin, `author`, `refine` | ✅ |
-| 4 | `tokens`, `library`, `golden`, dashboard | ✅ |
-| 5 | View mode: `survey` and composition | ✅ |
-
-**Phase 2 comes before phase 3 on purpose.** If you cannot measure, you cannot
-close the loop: a generative pipeline without a calibrated metric is a text
-generator with extra steps. The ruler first, then the factory.
-
----
-
 ## Development
 
 ```bash
@@ -364,6 +347,8 @@ The diagrams in `docs/` are hand-written SVG — no build step, no diagramming
 dependency, and they render on npm as well as on GitHub. The terminal windows
 show real output, copied from runs against a real project rather than composed
 for the page.
+
+---
 
 ## Known gaps
 
@@ -391,6 +376,8 @@ Written down rather than left to be discovered.
 - **Not published yet.** No npm package, and the plugin has only ever been
   installed from a local checkout.
 
+---
+
 ## Non-goals
 
 - It does not generate design. It translates the design that exists.
@@ -398,6 +385,8 @@ Written down rather than left to be discovered.
 - No data fetching, routing or business logic.
 - It does not chase pixel-perfect.
 - It does not publish, commit or push anything on its own.
+
+---
 
 ## License
 
