@@ -1,11 +1,11 @@
 # Gridwright
 
 End-to-end layout pipeline. A Figma node goes in; a built, visually verified
-component registered in the project's design system comes out. Driven from
-Claude Code.
+component comes out, registered in the project's design system. Point it at a
+whole page and it builds the page, section by section. Driven from Claude Code.
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-16a34a)](LICENSE)
-![tests: 184](https://img.shields.io/badge/tests-184%20passing-16a34a)
+![tests: 248](https://img.shields.io/badge/tests-248%20passing-16a34a)
 
 > **The design comes in as a node and leaves as a system.**
 >
@@ -96,10 +96,12 @@ supply-chain surface for nothing.
 
 ## Install
 
-> **Not on npm yet.** Until it is published, both routes below mean cloning
-> this repo and linking the binary — `pnpm install && pnpm build && pnpm link
-> --global` from the root. The commands are written as they will read once
-> there is a package.
+> **Not on npm yet.** Until it is published, both routes below start from a
+> clone of this repo. `pnpm install && pnpm build && pnpm link --global` from its
+> root puts `gw` on your path, and the plugin installs from the same checkout:
+> `/plugin marketplace add /path/to/gridwright`, then
+> `/plugin install gridwright@gridwright`. The commands below are written as
+> they will read once there is a package.
 
 There are two ways in, and the recommended one is not the one you type.
 
@@ -212,6 +214,7 @@ and the score then reports a layout problem that is really a copy problem.
 | Command | |
 |---|---|
 | `gw build <url>` | opens a run and executes as far as it goes |
+| `gw build --view <url>` | the same for a whole page — [below](#a-whole-view) |
 | `gw next [--json] [--run <id>]` | which stage is up and who runs it — **the protocol** |
 | `gw done [--output …]` | that stage is finished, here is what it produced |
 | `gw skip <stage> --reason` | it did not run, and why — on the record |
@@ -219,11 +222,13 @@ and the score then reports a layout problem that is really a copy problem.
 | `gw refine [--focus=…]` | the worst dimension, and what moved |
 | `gw golden` | freeze the design and the baselines |
 | `gw report [--open]` | the library dashboard |
-| `gw status` | runs and the stage each one is on |
+| `gw status` | open runs and the stage each is on, sections under their view |
 | `gw auth status` | which credential is in use and where it came from |
 
 The URL must come from Figma's **"Copy link to selection"**. An address-bar URL
-with no `node-id` is rejected, and correctly so.
+with no `node-id` is rejected, and correctly so. With more than one run open —
+a view and its sections — every command takes `--run <id>`; without it, `gw`
+works on the newest one.
 
 ---
 
@@ -236,34 +241,66 @@ gw build --view "https://www.figma.com/design/<KEY>/<name>?node-id=<page-frame>"
 Point it at the page. Its sections are the page's immediate children, and
 gridwright lists them itself — a hand-written list of the same page, on a real
 file, missed three sections, included a background rectangle and named two nodes
-that did not exist. Your part is confirming the list, not writing it.
+that did not exist. Your part is confirming the list at `plan`, not writing it.
 
 ```
-→ 10 sections under "home" — 62 values across the page
+→ 7 sections under "Landing" — 48 values across the page
+    ✓ layout   Navbar                   run navbar-01 · plan
     ✓ module   Hero                     run hero-01 · plan
-    ✓ module   SolutionsEntry           run solutions-entry-01 · plan
-    ✓ layout   NavMain                  run nav-main-01 · plan
-    ✓ module   OverlayForm              run overlay-form-01 · plan
-    · —        43                       part of the view — not in the library
-    …
+    ✓ module   Features                 run features-01 · plan
+    = module   Features                 same component as another section here — built once
+    ↻ module   Pricing                  already in the library as Pricing
+    · —        Divider                  part of the view — not in the library
+    ✓ layout   Footer                   run footer-01 · plan
 ```
 
-Figma already says which sections are reusable. An **instance** of a library
-component becomes a section with its own run, and goes to the library as a
-module or a layout part. Anything else was drawn for that page, and is built
-inside the view. Two instances of one component set are built once, and a
-component already in the library is reused rather than rebuilt — which is what
-makes the second page cheap. Sections are named after their component set, not
-their layer: `home-signals` is an instance of `overlay-form`, and registering
-the layer's name would make the next page that uses it build a second one.
+Figma already says which sections are reusable, and each child is one of four
+things:
 
-**The view is the only run that writes anything shared.** It fetches the page
-once, resolves every section's values together — one tokens gate, and one name
-per colour instead of one per section that uses it — and at the end registers
-the sections one after another. That is what lets the sections themselves run
-side by side, each through every stage from `plan` to `golden`, with `--run` on
-every command. The view is composed once they are all frozen; `gw done` refuses
-before that.
+| | The child is | What happens |
+|---|---|---|
+| ✓ | an instance of a library component | its own run, and into the library as a module or a layout part |
+| = | another instance of one already listed | built once |
+| ↻ | an instance of something already in the library | reused, not rebuilt — which is what makes the second page cheap |
+| · | anything else — drawn for this page | built inside the view, never in the library |
+
+Sections are named after their component set, not their layer: a layer called
+`pricing-dark` that is an instance of `pricing` is the Pricing section, and
+registering the layer's name would make the next page that uses it build a
+second one. The layer wins only when the set is named like scaffolding —
+`Frame 87`, `Property 1=Default`. A navbar or a footer is a layout part; the
+rest are modules.
+
+**The view is the only run that writes anything shared.** In order:
+
+1. **Fetch once** — the page, every section's reference image in one batch,
+   every asset.
+2. **Distill each section** into its own IR. The view's own IR keeps the
+   sections as empty boxes, so whoever composes the page never reads the
+   thousands of nodes inside them (Law 2).
+3. **One tokens gate for the whole page.** The union of every section's values,
+   so a colour four sections use gets one name, not four.
+4. **The library's structure**, once.
+5. **The sections, in parallel.** When the view reaches `author`, `gw next`
+   lists them as pending, and the agent starts one sub-agent per section. Each
+   goes through every stage from `plan` to `golden`, in the same tree, with
+   `--run` on every command.
+6. **The view composes them**, builds its own parts, and is verified and frozen
+   as a whole page. `gw done` refuses to close its `author` while a section is
+   unfinished.
+7. **Registration, one section after another** — the registry and the barrel
+   are one file each — and then the view is recorded.
+
+Not worktrees. Work done in a worktree only comes back through a commit, and
+gridwright never commits. It does not need them either: a section only ever
+writes its own files — its component, its run, its baselines. The two things
+that did collide were fixed in code: every command takes `--run`, and each run
+renders in a harness of its own.
+
+One rule the sub-agents are taught: a section never runs the project's build.
+Nine sections building at once all write the same `dist/`, and one fails for a
+reason that has nothing to do with its component. `tsc --noEmit` says the file
+compiles; `gw verify` says it renders.
 
 **A view is not a library component.** Nothing imports a page, so it is
 recorded in `.gridwright/views.json` rather than the registry, and the
@@ -277,12 +314,14 @@ says which views use it. The rail groups everything by what it is: views,
 modules, layout parts. `gw status` lists the sections under their view too.
 
 ```
-home-01 Home · view
-  3 stages closed · current: tokens
-  sections · 0 of 9 finished
-    · Hero                     hero-01                      plan
-    · NavFooter                nav-footer-01                plan
-    …
+landing-01 Landing · view
+  13 stages closed · current: report
+  sections · 5 of 5 finished
+    ✓ Navbar                   navbar-01                    report
+    ✓ Hero                     hero-01                      report
+    ✓ Features                 features-01                  report
+    ✓ Pricing                  pricing-01                   report
+    ✓ Footer                   footer-01                    report
 ```
 
 ---
@@ -368,6 +407,21 @@ had. And **the framework's own scale counts as the system**: a project on
 Tailwind's defaults has `spacing.4`, so proposing `16px` as a new token is
 proposing a duplicate.
 
+At the gate, a composite asks only for what it is missing. A border whose
+colour the project already has asks for a width, not for a `1px solid #9aa3ad`
+token, and a value that arrives from several places — a colour in a border and
+in a gradient — is asked about once.
+
+**Tailwind v4 is read as CSS.** There is no config to import: the theme is
+custom properties in a stylesheet, and the palette is `oklch()`. gridwright
+follows `var()`, converts `oklch()` to the hex a design is compared in, works
+out `calc(var(--spacing) * 4)`, and takes the installed `tailwindcss/theme.css`
+as the framework's scale. On a real page that moved 38 of its 62 values from
+*new* to *exact* — before, a stock Vite + shadcn project could not match a
+single colour. What is approved is written into `@theme`, in the namespace a
+utility reads (`--color-*`, `--radius-*`, `--shadow-*`), so `bg-brand-600`
+works the moment the name exists.
+
 Type resolves on all three parts, not the size alone. One project has
 `fontSize.h6` at 20/24/700 and `fontSize.paragraph-lg` at 20/24/400; matching
 on size took whichever the config declared first, and body copy measured at
@@ -377,8 +431,8 @@ geometry is close enough to score well.
 The whole stage runs before a line of the component is written. The other way
 round, the model writes `bg-[#1a1a1a]` and someone refactors.
 
-**A typeface the project does not load is reported, and nothing else.** The
-design says Graphik; if the project does not ship Graphik, `gw build` says so
+**A typeface the project does not load is reported, and nothing else.** When
+the design asks for a family the project does not ship, `gw build` says so
 once and carries on. It does not pick a lookalike, install one, or ask: a
 commercial typeface is licensed and a lookalike is a different design, and
 either is the project's decision, made before a run. Until the font is loaded
@@ -442,17 +496,71 @@ an element you can find; the same run before labels said `width off by +1240px`
 about a node that was never its counterpart.
 
 **Only one viewport has a design to be faithful to.** A Figma frame is one
-width. Rendering at three others and comparing all of them against it produces
-measurements with no ground truth behind them, so the width the design was
-drawn at is always rendered and always marked. The worst viewport still decides
-whether a run passes (Law 6) — if it breaks on mobile it is broken — but the
-report says which number means what.
+width, so the width it was drawn at is always rendered and always marked — it is
+the only number with ground truth behind it. The others are measured against
+that same frame: a 1440 layout held up against a 375 render. The worst viewport
+still decides whether a run passes (Law 6), which means that today a section
+that matches its design at 1440 can score in the thirties overall — the ruler
+is asking mobile to look like desktop. Read the design width first; the
+[known gaps](#known-gaps) say why the rest is not solved yet.
 
 **The score is evidence, not a verdict**, and `gw report` is the page it gets
 read on: every module and view the project has, and for each one the design
 beside the render — side by side, drag to compare, or the diff — with the props
 it takes, the tokens it uses, and how its values resolved. A percentage cannot
 tell you whether a component is right. Two pictures and a slider can.
+
+It is one static page, and it reads its images from `.gridwright/` beside it
+instead of carrying them — with every baseline inlined, a project of ten
+sections produced a 74MB page that a viewer refused to open. Move the folder as
+a whole.
+
+---
+
+## Against the same agent, without it
+
+![Three panels at 1440px: the Figma design, the gridwright build at 99.8%, and the control build at 89% with grey placeholder boxes where the photos go. Below, a table of what the pixels do not show: images, layout technique, brand colour, tokens added, typeface, component name, library registration.](docs/benchmark-untitled-ui.png)
+
+One section of [Untitled UI FREE v2.0](https://www.figma.com/community/file/1020079203222518115/untitled-ui-free-figma-ui-kit-and-design-system-v2-0),
+a public Figma kit — *Image collage 02*, 1440×688 — built twice, from the same
+commit of the same empty Vite + React + Tailwind v4 + shadcn project, in two
+clones so neither arm could see the other's work. Same prompt, one difference:
+one arm was told to use gridwright. The other was told what gridwright finds on
+its own — the stack, where the tokens live — and to read the design with
+whatever tools it had, because a control that cannot see the design measures
+nothing. Both were scored by the same ruler, `gw verify --figma`, at the width
+the frame was drawn at.
+
+| | With gridwright | Without |
+|---|---|---|
+| Score at 1440 | **99.8%** | 89% |
+| structural · chromatic · perceptual | 99.64 · 100 · 99.92 | 94.41 · 82.86 · 84.3 |
+| Images | the five in the design, extracted | placeholders from an external URL |
+| The mosaic | flex and gap | `position: absolute`, from the design's coordinates |
+| Brand colour | the design's exact values | Tailwind's violet, ΔE 5.5 and 7.3 off |
+| Tokens | 2 added, 7 reused | 7 added, plus a dark variant of each the design does not have |
+| In the library | registered, five baselines frozen | no |
+
+The gap is not where the headline puts it. The control got the layout mostly
+right — 94% structural — and lost most of the rest on two things a person fixes
+in a minute: placeholder photos and an approximated colour. What does not get
+fixed in a minute is the mosaic. It placed each photo at the coordinates it read
+off the design, which is exactly what the IR exists to prevent (Law 2), and it
+breaks at the first width the design was not drawn at.
+
+gridwright lost on two counts of its own. It rendered in the project's default
+typeface instead of the design's Inter, and the score did not notice, because
+text is masked out of the perceptual diff. And the control's name was better:
+`JoinOurTeam`, from what the section says, against `ImageCollageSection`, from
+its variant name in Figma. The run also found the token writer failing on
+Tailwind v4, and that arm had to go around it. Both are fixed now: the writer
+targets `@theme`, and a typeface the project does not load is reported at
+`gw build`.
+
+The control's component had no `data-gw` labels — asking for them would have
+leaked the contract — so they were added before scoring: attributes only, no
+change to the layout. It is the least objective step in the comparison, and it
+is written down here for that reason. Design © Untitled UI.
 
 ---
 
@@ -463,17 +571,18 @@ tell you whether a component is right. Two pictures and a slider can.
   runs/<id>/            the IR, measurements, resolutions, screenshots — gitignored
   baselines/<Name>/     figma.png, design.png, mobile.png…  — committed, they are tests
   views.json            the views — committed, and kept out of the library
-  dashboard/index.html  the library
+  dashboard/index.html  the library — its images are read from here, keep them together
 
 <placement dir>/<Name>            the component
 <placement dir>/__tests__/…      a Playwright spec, if the project has Playwright
 <library barrel>                 one export line, unless it is a view
-<registry>.json                  path, node, props, the tokens it uses, the score
+<registry>.json                  path, node, props, the tokens it uses, the score per viewport
 <tailwind config|css>            any token the design needed and did not have
 ```
 
-Nothing here is decoration. A view is registered but never exported, because a
-view is a leaf — it composes, and nothing composes it. The baselines are
+Nothing here is decoration. A view is neither registered nor exported, because
+a view is a leaf — it composes, and nothing composes it; `views.json` is what
+remembers it. The baselines are
 committed because a regression suite whose baselines are gitignored does not
 exist for anybody but the person who ran it (Law 7). And the spec is written
 only when the project actually has Playwright: a tool that adds a file which
@@ -485,7 +594,7 @@ fails your build has done something worse than nothing.
 
 ```bash
 pnpm install
-pnpm test        # 184 tests
+pnpm test        # 248 tests
 pnpm typecheck
 pnpm build
 ```
@@ -496,7 +605,7 @@ including a frame without auto-layout that **must** make the pipeline halt.
 The diagrams in `docs/` are hand-written SVG — no build step, no diagramming
 dependency, and they render on npm as well as on GitHub. The terminal windows
 show real output, copied from runs against a real project rather than composed
-for the page.
+for the page. The one PNG is the benchmark's capture.
 
 ---
 
@@ -510,10 +619,15 @@ Written down rather than left to be discovered.
   worked out. Anything more elaborate — nested `calc()`, `color-mix()`,
   `light-dark()` — is kept as written and counts as incomparable, so a token
   built that way is never offered as a match.
-- **A whole view has been built and handed out, not yet composed end to end.**
-  On a real ten-section page, the sections were classified, deduplicated, given
-  their own runs and made to wait for the view; no page has yet gone all the
-  way to composed, registered and frozen.
+- **Responsive is not scored against anything real.** A frame is one width,
+  and every other viewport is measured against it. Since the worst viewport
+  decides, a section at 97% at its design width scores 34% overall — the number
+  describes the ruler, not the component. A design drawn at several widths, as
+  separate frames, is not paired up yet; until it is, read the design width.
+- **A wrong typeface barely moves the score.** Text is masked out of the
+  perceptual diff, so a component set in the wrong family pays only for the few
+  pixels its boxes move. `gw build` reports a typeface the project does not
+  load; the score does not.
 - **`survey` is name-first.** It matches what a design and a component are
   called, falls back to a rough shape, and says which signal it used. It will
   miss a component that does the same job under a different name.
