@@ -178,6 +178,41 @@ is `OverlayForm` in the library). Put the IR's label on each section's wrapper,
 like any other node. `gw done` refuses to close the view's `author` while a
 section is unfinished.
 
+## Asking the person: options, never open questions
+
+Never ask the person to type an answer. Every question — a gate, a section list
+to confirm, a placement, a name, a doubt of your own — goes through the
+AskUserQuestion tool: two to four options, the one you recommend first and
+marked as recommended, each saying what happens if it is picked. The tool always
+adds an "Other" for the rare answer you did not foresee; that is where free text
+belongs, not in your question.
+
+The work of turning a decision into options is yours. At the tokens gate, do not
+ask "what should these be called?" — propose names that follow the project's
+convention, and ask:
+
+- **Use these names** (recommended) — the list, as you would write them
+- **Name them by role instead** — `ink`, `surface`, `accent` rather than a palette
+- **Leave the near-duplicates out** — when two of them are within a shade of
+  something the project has
+
+When confirming a view's sections, offer "Build all ten as listed" against
+"Leave some out". When `init` found two candidate directories for a kind, the
+options are the two directories. A doubt with no obvious options is a sign you
+have not done the work of finding them yet.
+
+## A typeface the project does not load
+
+When `gw build` warns that the design uses a family this project does not load,
+that warning is the whole response. `inputs.missingFonts` lists them.
+
+Do not pick a substitute, do not install a lookalike, and do not ask about it.
+A commercial typeface is licensed and a lookalike is a different design; either
+decision is the project's, and it belongs before a run. Use the project's font
+utilities as they are, carry on, and mention the missing families once in your
+report — the structural score is affected until they are loaded, and the person
+should read it knowing that.
+
 ## Rules that hold at every stage
 
 **A node's `tokens` are a specification, not a hint.** Every value in there was

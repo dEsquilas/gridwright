@@ -13,6 +13,7 @@ import { dirname, join, relative, extname } from 'node:path'
 import { paths, type Framework, type GridwrightConfig } from '@gridwright/core'
 
 export * from './placement.js'
+export * from './fonts.js'
 
 export interface RegistryEntry {
   path: string

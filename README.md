@@ -185,6 +185,13 @@ executes it:
 gw next --json   →   do exactly that stage   →   gw done   →   gw next --json   →   …
 ```
 
+Whenever the pipeline needs you, it asks with options, never with a blank.
+The agent does the work of turning a decision into choices — at the tokens gate
+it proposes names in the project's convention and offers them against the
+alternatives, rather than asking what things should be called — and you pick
+one. `gw init` does the same in a terminal: a numbered list of the directories
+it found, and a path is typed only when none of them is right.
+
 When you close `author`, hand over both halves:
 
 ```bash
@@ -369,6 +376,15 @@ geometry is close enough to score well.
 
 The whole stage runs before a line of the component is written. The other way
 round, the model writes `bg-[#1a1a1a]` and someone refactors.
+
+**A typeface the project does not load is reported, and nothing else.** The
+design says Graphik; if the project does not ship Graphik, `gw build` says so
+once and carries on. It does not pick a lookalike, install one, or ask: a
+commercial typeface is licensed and a lookalike is a different design, and
+either is the project's decision, made before a run. Until the font is loaded
+the text renders in a fallback and every text box measures a little
+differently — which is why it is said out loud, and why the score should be
+read knowing it.
 
 ---
 

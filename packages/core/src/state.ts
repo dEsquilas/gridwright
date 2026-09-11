@@ -224,7 +224,9 @@ export function directive(
     actor: spec.actor,
     action: spec.summary,
     inputs: { root, name: state.name, mode: state.mode, ...inputs },
-    gate: spec.gate ? 'Requires human approval before advancing (Law 5).' : null,
+    // Asked as a choice, never as an open question: the agent turns the
+    // decision into options and the person picks one.
+    gate: spec.gate ? 'Requires human approval before advancing (Law 5). Ask with options, not an open question.' : null,
   }
   // `author` and `plan` need the project's own shape, not just its paths. A
   // component written in the wrong shape compiles, renders, scores well and

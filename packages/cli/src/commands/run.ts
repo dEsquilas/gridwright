@@ -20,7 +20,7 @@ import {
   toPascalCase, slugify, detectSections, stubSections, findNode,
   type FigmaNode, type SectionInfo,
 } from '@gridwright/figma'
-import { inferKind, readRegistry, findByIdentity } from '@gridwright/library'
+import { inferKind, readRegistry, findByIdentity, missingFonts } from '@gridwright/library'
 import { ok, fail, info, warn, step, dim, bold, green, yellow, table, missingCredentials } from '../ui.js'
 import { autorun, printStop } from './autorun.js'
 
@@ -288,6 +288,7 @@ async function buildView(
       JSON.parse(readFileSync(paths.rawTokens(root, r.run!), 'utf8')) as RawToken[]),
   ])
   writeFileSync(paths.rawTokens(root, view.id), JSON.stringify(page, null, 2) + '\n')
+  const fonts = warnMissingFonts(root, page)
 
   const halt = shouldHalt(ir, config.distill)
   if (halt.halt) {
@@ -298,13 +299,39 @@ async function buildView(
   }
   advance(view, 'distill', {
     status: 'done',
-    output: { nodes: countNodes(ir), hash: ir.hash, sections: refs.length, rawTokens: page.length },
+    output: {
+      nodes: countNodes(ir), hash: ir.hash, sections: refs.length, rawTokens: page.length,
+      ...(fonts.length ? { missingFonts: fonts } : {}),
+    },
   })
   view.sections = refs
   saveState(root, view)
 
   step(`${refs.length} sections under "${doc.name}" — ${page.length} values across the page`)
   printSections(root, refs)
+}
+
+/**
+ * Says which of the design's typefaces the project does not load — once — and
+ * does nothing else about it.
+ *
+ * A commercial typeface is licensed and a lookalike is a different design;
+ * choosing either is the project's call, and it belongs before a run, not in
+ * the middle of one. Until the font is loaded the text renders in a fallback
+ * and every text box measures differently, which is why it is said out loud.
+ */
+function warnMissingFonts(root: string, rawTokens: RawToken[]): string[] {
+  const families = rawTokens
+    .filter((t) => t.kind === 'typography')
+    .map((t) => t.value.split('/')[0]!.trim())
+    .filter(Boolean)
+  const missing = missingFonts(root, families)
+  if (missing.length > 0) {
+    warn(`The design uses ${missing.join(', ')} — this project does not load ${missing.length === 1 ? 'it' : 'them'}.`)
+    console.log(dim('  Text renders in a fallback until it does, and text boxes measure differently.'))
+    console.log(dim('  gridwright does not substitute fonts: load them in the project, then re-run `gw verify`.'))
+  }
+  return missing
 }
 
 /**
@@ -423,6 +450,7 @@ async function runDistill(root: string, state: RunState): Promise<void> {
   console.log(`    ${dim('hash')} ${ir.hash}`)
 
   printWarnings(ir)
+  const fonts = warnMissingFonts(root, rawTokens)
 
   const halt = shouldHalt(ir, config.distill)
   if (halt.halt) {
@@ -436,6 +464,7 @@ async function runDistill(root: string, state: RunState): Promise<void> {
     output: {
       nodes: countNodes(ir), warnings: ir.warnings.length, hash: ir.hash,
       rawTokens: rawTokens.length, measured: measurements.nodes.length,
+      ...(fonts.length ? { missingFonts: fonts } : {}),
     },
   })
   saveState(root, state)
@@ -485,6 +514,13 @@ export function printNext(root: string, state: RunState | null, opts: { json: bo
     // step and overrides it, which is why a guess is allowed here.
     placement: placementInputFor(root, run),
   }, loadConfig(root)?.conventions)
+
+  // Typefaces the design uses and the project does not load. Passed on so the
+  // author knows the warning was given and that there is nothing to do about it
+  // — no substitute, no install, no question.
+  const fonts = (run.stages.distill.output?.missingFonts
+    ?? (run.parent ? loadState(root, run.parent)?.stages.distill.output?.missingFonts : undefined)) as string[] | undefined
+  if (fonts?.length) d.inputs.missingFonts = fonts
 
   // A section's tokens were resolved by its view, once for the whole page. It
   // reads them there — and it waits until they are written, because a section

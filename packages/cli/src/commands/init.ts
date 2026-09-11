@@ -109,13 +109,29 @@ async function setupPlacements(detected: Placement[], acceptAll: boolean): Promi
     return detected
   }
 
-  console.log(dim('\n  Enter to keep, or type a path relative to the project root.'))
+  // Choices, not a blank to fill. Every directory worth offering is already
+  // known — the one detected and any runner-up — so the person picks a number,
+  // and typing a path is left for the one case where none of them is right.
+  console.log(dim('\n  Pick a number; Enter keeps the first.'))
   const out: Placement[] = []
   for (const p of detected) {
-    console.log(dim(`\n  ${KIND_LABEL[p.kind]}`))
-    if (p.alternatives?.length) console.log(dim(`    also found: ${p.alternatives.join(', ')}`))
-    const answer = await promptLine(`    ${p.dir} ${dim('→')} `, p.dir)
-    out.push(answer === p.dir ? p : { kind: p.kind, dir: answer.replace(/^\.?\//, ''), from: 'asked' })
+    const choices = [p.dir, ...(p.alternatives ?? [])]
+    console.log(`\n  ${KIND_LABEL[p.kind]}`)
+    choices.forEach((c, i) => {
+      const note = i === 0 ? (p.from === 'found' ? 'found' : 'proposed') : 'also found'
+      console.log(`    ${i + 1}) ${c.padEnd(28)} ${dim(note)}`)
+    })
+    console.log(`    ${choices.length + 1}) ${dim('somewhere else…')}`)
+
+    const n = parseInt(await promptLine(`    ${dim('→')} `, '1'), 10)
+    if (n >= 1 && n <= choices.length) {
+      out.push(n === 1 ? p : { kind: p.kind, dir: choices[n - 1]!, from: 'asked' })
+    } else if (n === choices.length + 1) {
+      const typed = await promptLine(`    path ${dim('→')} `, p.dir)
+      out.push(typed === p.dir ? p : { kind: p.kind, dir: typed.replace(/^\.?\//, ''), from: 'asked' })
+    } else {
+      out.push(p)
+    }
   }
   return out
 }
