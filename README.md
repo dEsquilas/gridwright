@@ -5,7 +5,7 @@ component comes out, registered in the project's design system. Point it at a
 whole page and it builds the page, section by section. Driven from Claude Code.
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-16a34a)](LICENSE)
-![tests: 248](https://img.shields.io/badge/tests-248%20passing-16a34a)
+![tests: 250](https://img.shields.io/badge/tests-250%20passing-16a34a)
 
 > **The design comes in as a node and leaves as a system.**
 >
@@ -244,18 +244,18 @@ file, missed three sections, included a background rectangle and named two nodes
 that did not exist. Your part is confirming the list at `plan`, not writing it.
 
 ```
-→ 7 sections under "Landing" — 48 values across the page
-    ✓ layout   Navbar                   run navbar-01 · plan
-    ✓ module   Hero                     run hero-01 · plan
-    ✓ module   Features                 run features-01 · plan
-    = module   Features                 same component as another section here — built once
-    ↻ module   Pricing                  already in the library as Pricing
-    · —        Divider                  part of the view — not in the library
+→ 12 sections under "Launch UI / Dark mode / Desktop" — 80 values across the page
+    ✓ layout   NavbarDefault            run navbar-default-01 · plan
+    ✓ module   HeroDefault              run hero-default-01 · plan
+    ✓ module   Logos                    run logos-01 · plan
+    ! module   BentoGrid2x2             run bento-grid-2x2-01 — distill failed
+    ✓ module   ItemsDefault             run items-default-01 · plan
+    ✓ module   FeatureRising            run feature-rising-01 · plan
+    …
     ✓ layout   Footer                   run footer-01 · plan
 ```
 
-Figma already says which sections are reusable, and each child is one of four
-things:
+Figma already says which sections are reusable, and each child is one of these:
 
 | | The child is | What happens |
 |---|---|---|
@@ -263,6 +263,7 @@ things:
 | = | another instance of one already listed | built once |
 | ↻ | an instance of something already in the library | reused, not rebuilt — which is what makes the second page cheap |
 | · | anything else — drawn for this page | built inside the view, never in the library |
+| ! | a section distill refused | skipped on the record; the page goes on without it |
 
 Sections are named after their component set, not their layer: a layer called
 `pricing-dark` that is an instance of `pricing` is the Pricing section, and
@@ -314,14 +315,14 @@ says which views use it. The rail groups everything by what it is: views,
 modules, layout parts. `gw status` lists the sections under their view too.
 
 ```
-landing-01 Landing · view
-  13 stages closed · current: report
-  sections · 5 of 5 finished
-    ✓ Navbar                   navbar-01                    report
-    ✓ Hero                     hero-01                      report
-    ✓ Features                 features-01                  report
-    ✓ Pricing                  pricing-01                   report
-    ✓ Footer                   footer-01                    report
+launch-ui-dark-mode-desktop-01 LaunchUIDarkModeDesktop · view
+  14 stages closed · current: report Generate the run dashboard
+  sections · 12 of 12 finished
+    ✓ BentoGrid2x2             bento-grid-2x2-01            report
+    ✓ CTA                      cta-01                       report
+    ✓ FAQDefault               faq-default-01               report
+    ✓ FeatureRising            feature-rising-01            report
+    …
 ```
 
 ---
@@ -416,9 +417,9 @@ in a gradient — is asked about once.
 custom properties in a stylesheet, and the palette is `oklch()`. gridwright
 follows `var()`, converts `oklch()` to the hex a design is compared in, works
 out `calc(var(--spacing) * 4)`, and takes the installed `tailwindcss/theme.css`
-as the framework's scale. On a real page that moved 38 of its 62 values from
-*new* to *exact* — before, a stock Vite + shadcn project could not match a
-single colour. What is approved is written into `@theme`, in the namespace a
+as the framework's scale. On the [Launch UI page](#a-whole-page), 65 of its 80
+values were already in the system — before, a stock Vite + shadcn project could
+not match a single colour. What is approved is written into `@theme`, in the namespace a
 utility reads (`--color-*`, `--radius-*`, `--shadow-*`), so `bg-brand-600`
 works the moment the name exists.
 
@@ -500,8 +501,8 @@ width, so the width it was drawn at is always rendered and always marked — it 
 the only number with ground truth behind it. The others are measured against
 that same frame: a 1440 layout held up against a 375 render. The worst viewport
 still decides whether a run passes (Law 6), which means that today a section
-that matches its design at 1440 can score in the thirties overall — the ruler
-is asking mobile to look like desktop. Read the design width first; the
+that matches its design at 1440 can score under 50% overall — the ruler is
+asking mobile to look like desktop. Read the design width first; the
 [known gaps](#known-gaps) say why the rest is not solved yet.
 
 **The score is evidence, not a verdict**, and `gw report` is the page it gets
@@ -564,6 +565,54 @@ is written down here for that reason. Design © Untitled UI.
 
 ---
 
+## A whole page
+
+![The Launch UI dark-mode landing page, 1440 wide, top to bottom: the Figma design on the left and the page gridwright built on the right, 98.54% — structural 99.47%, chromatic 100%, perceptual 95.22%.](docs/benchmark-launch-ui.jpg)
+
+The dark-mode landing page from [Launch UI](https://www.figma.com/community/file/1420131743903900629/launch-ui-landing-page-templates-components),
+a public Figma kit — 1440×8599, twelve sections — built in the same empty
+project from one command:
+
+```bash
+gw build --view "<the page's link>"
+```
+
+gridwright found the twelve sections, twelve sub-agents built them side by side,
+and the view composed them. The whole page scores **98.54% at 1440**. Of the 80
+values it brings, 65 were already in the system — 38 project tokens and 513
+from Tailwind's installed theme — 7 were close enough to use the system's, and 8
+needed names, asked once for the whole page.
+
+| Section | Kind | At 1440 | structural · chromatic · perceptual |
+|---|---|---|---|
+| NavbarDefault | layout | 95.7 | 91.72 · 100 · 99.37 |
+| HeroDefault | module | 91.73 | 92.2 · 99.97 · 82.55 |
+| Logos | module | 85.81 | 71.87 · 100 · 99.48 |
+| BentoGrid2x2 | module | 95.43 | 99.54 · 84 · 98.65 |
+| ItemsDefault | module | 98.23 | 96.55 · 100 · 99.8 |
+| FeatureRising | module | 88.87 | 100 · 100 · 55.47 |
+| TabsDefault | module | 95.32 | 96.78 · 88.87 · 98.86 |
+| Testimonials | module | 97.28 | 94.72 · 100 · 99.68 |
+| PricingDefault | module | 97.78 | 99.6 · 92.31 · 99.6 |
+| FAQDefault | module | 100 | 100 · 100 · 99.98 |
+| CTA | module | 98.81 | 97.69 · 100 · 99.87 |
+| Footer | layout | 97.23 | 96.57 · 95.83 · 99.96 |
+| **The page** | view | **98.54** | 99.47 · 100 · 95.22 |
+
+Two things did not go by themselves, and both are on the run's record.
+`BentoGrid2x2` is drawn with eight absolutely positioned layers: distill refused
+it, and the page went on with the other eleven — a refused section is skipped,
+not a stopped page. The person then raised the tolerance and built it as a run
+of its own, and the view took it in. And the design is set in Inter, which the
+project does not load: `gw build` said so, and did nothing else.
+
+At 375 and 768 the same page scores 63% and 65%, because those widths have no
+frame to be measured against — the [known gap](#known-gaps). There is no
+control arm this time: the session without gridwright could not open the Figma
+file with the tools it had, and built nothing. Design © Launch UI.
+
+---
+
 ## What a run leaves behind
 
 ```
@@ -594,7 +643,7 @@ fails your build has done something worse than nothing.
 
 ```bash
 pnpm install
-pnpm test        # 248 tests
+pnpm test        # 250 tests
 pnpm typecheck
 pnpm build
 ```
@@ -621,7 +670,7 @@ Written down rather than left to be discovered.
   built that way is never offered as a match.
 - **Responsive is not scored against anything real.** A frame is one width,
   and every other viewport is measured against it. Since the worst viewport
-  decides, a section at 97% at its design width scores 34% overall — the number
+  decides, `PricingDefault` is 97.8% at 1440 and 43.4% overall — the number
   describes the ruler, not the component. A design drawn at several widths, as
   separate frames, is not paired up yet; until it is, read the design width.
 - **A wrong typeface barely moves the score.** Text is masked out of the
