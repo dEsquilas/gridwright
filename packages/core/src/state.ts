@@ -40,8 +40,42 @@ export interface RunState {
   name: string
   stage: Stage
   stages: Record<Stage, StageRecord>
+  /**
+   * For a section: the view run that owns it.
+   *
+   * A section goes through every stage, but the ones that write something the
+   * whole project shares are the parent's — tokens once for the whole page, the
+   * library's structure once, and registration in order at the end. That is
+   * what lets sections run side by side without stepping on each other.
+   */
+  parent?: string
+  /** For a view: its immediate children, classified, and where each one is. */
+  sections?: SectionRef[]
   createdAt: string
   updatedAt: string
+}
+
+export interface SectionRef {
+  nodeId: string
+  /** What it is registered as: the component set's name, or the layer's. */
+  name: string
+  /** The layer's name in the view — what the view's IR calls it. The view's
+   *  author matches the two: `home-signals` in the IR is `OverlayForm` in the
+   *  library. */
+  layerName: string
+  /** module or layout, for a reusable section. */
+  kind?: string
+  /** Made from a main component, so it belongs in the library. A section that
+   *  is not was drawn for this page, and is built as part of the view. */
+  reusable: boolean
+  /** Component set or main component. Two sections with one identity are one. */
+  identity?: string
+  /** The run building it. Absent when it is reused or is part of the view. */
+  run?: string
+  /** Already in the library under this name: reused, not rebuilt. */
+  reuses?: string
+  /** Another section in this view with the same identity is the one built. */
+  sameAs?: string
 }
 
 /** What `gw next` hands back to Claude. This is the whole protocol. */
@@ -207,6 +241,17 @@ export function directive(
     // already were.
   }
 
+  // A section's last two stages are the view's to close. `library:register`
+  // writes the registry and the barrel, which every section shares, so the
+  // parent does it for all of them in order; and there is no report of one
+  // section, there is the view's.
+  if (state.parent && (stage === 'library:register' || stage === 'report')) {
+    base.actor = 'code'
+    base.action = `Closed by the view run ${state.parent}. This section is finished — stop here.`
+    base.inputs.owner = state.parent
+    base.gate = null
+  }
+
   if (!isImplemented(stage)) {
     base.blocked = {
       reason: `Stage "${stage}" belongs to phase ${spec.phase} of the spec and is not built yet.`,
@@ -214,4 +259,23 @@ export function directive(
     }
   }
   return base
+}
+
+/**
+ * A section is finished when it has been frozen.
+ *
+ * `golden` rather than `report`, because the last two stages of a section are
+ * the parent's: it is done with everything that is its own to do.
+ */
+export function sectionFinished(run: RunState): boolean {
+  const g = run.stages.golden.status
+  return g === 'done' || g === 'skipped'
+}
+
+/** The sections of a view that still have work to do, with their runs. */
+export function pendingSections(root: string, view: RunState): Array<SectionRef & { state: RunState | null }> {
+  return (view.sections ?? [])
+    .filter((s) => s.run)
+    .map((s) => ({ ...s, state: loadState(root, s.run!) }))
+    .filter((s) => !s.state || !sectionFinished(s.state))
 }

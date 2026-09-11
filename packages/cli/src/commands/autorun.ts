@@ -131,6 +131,18 @@ export function autorun(root: string, run: RunState): StopReason {
     const stage = run.stage
     const spec = STAGE_SPECS[stage]
 
+    // A section's last two stages are its view's: the registry and the barrel
+    // are shared, so the view writes them for every section, one after the
+    // other. Running `library:register` here would be two sections writing one
+    // file at once.
+    if (run.parent && (stage === 'library:register' || stage === 'report')) {
+      return {
+        stage, kind: 'end',
+        message: `Section finished — the view ${run.parent} registers it with the others.`,
+        next: `gw next --run ${run.parent}`,
+      }
+    }
+
     // Checked before both of the guards below: a stage with nothing to do is
     // neither a decision to approve nor judgment to apply. `tokens` is the
     // model's work because naming takes judgment — with no names to give, there

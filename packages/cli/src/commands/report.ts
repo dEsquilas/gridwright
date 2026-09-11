@@ -23,7 +23,7 @@ import {
   activeRun, advance, listRuns, loadConfig, loadState, paths, saveState,
   type IR, type Measurements, type RunScore, type RunState, type GridwrightConfig,
 } from '@gridwright/core'
-import { readRegistry, type RegistryEntry } from '@gridwright/library'
+import { readRegistry, readViews, type RegistryEntry } from '@gridwright/library'
 import type { Resolution } from '@gridwright/tokens'
 import { ok, fail, dim } from '../ui.js'
 
@@ -145,6 +145,18 @@ function library(root: string, config: GridwrightConfig, runs: RunState[]): Entr
   for (const [name, reg] of Object.entries(registry)) {
     seen.add(name)
     entries.push(entryFor(root, name, reg, latestRun.get(name) ?? null, true))
+  }
+  // Views are recorded apart from the library, because nothing reuses a view.
+  // They are still built, still frozen, and still worth looking at.
+  for (const [name, view] of Object.entries(readViews(root))) {
+    if (seen.has(name)) continue
+    seen.add(name)
+    entries.push(entryFor(root, name, {
+      path: view.path, mode: 'view', figma: view.figma, props: [], tokens: view.sections,
+      ...(view.score !== undefined ? { score: view.score } : {}),
+      ...(view.viewports ? { viewports: view.viewports } : {}),
+      runs: view.runs, updatedAt: view.updatedAt,
+    }, latestRun.get(name) ?? null, true))
   }
   for (const [name, run] of latestRun) {
     if (seen.has(name)) continue

@@ -78,6 +78,9 @@ interface Args {
   values: Map<string, string>
 }
 
+/** Flags that are on or off, and so never consume the token after them. */
+const SWITCHES = new Set(['view', 'json', 'yes', 'force', 'approve', 'open', 'help'])
+
 function parse(argv: string[]): Args {
   const positional: string[] = []
   const flags = new Set<string>()
@@ -93,7 +96,10 @@ function parse(argv: string[]): Args {
 
     const name = a.slice(2)
     const next = argv[i + 1]
-    if (next && !next.startsWith('--')) { values.set(name, next); i++ }
+    // A switch never takes a value. Without this, `gw build --view "<url>"` —
+    // the form the README and the skill both give — read the URL as the value
+    // of --view, and then reported that the URL was missing.
+    if (!SWITCHES.has(name) && next && !next.startsWith('--')) { values.set(name, next); i++ }
     else flags.add(name)
   }
   return { cmd: positional[0] ?? '', sub: positional[1], positional: positional.slice(1), flags, values }
@@ -206,7 +212,7 @@ async function main(): Promise<void> {
       return resume(root, args.values.get('run'))
 
     case 'next':
-      return printNext(root, null, { json: args.flags.has('json') })
+      return printNext(root, null, { json: args.flags.has('json'), run: args.values.get('run') })
 
     case 'status':
       return status(root, { json: args.flags.has('json') })

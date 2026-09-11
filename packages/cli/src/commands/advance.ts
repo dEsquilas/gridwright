@@ -12,7 +12,7 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import {
-  activeRun, advance, loadState, saveState, STAGE_SPECS,
+  activeRun, advance, loadState, saveState, pendingSections, STAGE_SPECS,
   type RunState, type Stage,
 } from '@gridwright/core'
 import { ok, fail, info, warn, dim, bold, green, yellow } from '../ui.js'
@@ -51,6 +51,19 @@ export function done(root: string, args: TransitionArgs): void {
   const run = requireRun(root, args.run)
   const stage = targetStage(run, args.stage)
   const spec = STAGE_SPECS[stage]
+
+  // A view is composed from its sections, so it cannot be written before they
+  // are. Checked here rather than trusted to the agent: an author that closes
+  // the view early imports components that do not exist yet.
+  if (run.mode === 'view' && stage === 'author') {
+    const pending = pendingSections(root, run)
+    if (pending.length > 0) {
+      fail(
+        `${pending.length} section${pending.length === 1 ? ' is' : 's are'} not finished yet.`,
+        pending.map((p) => `  ${p.name} — ${p.state?.stage ?? 'no run'} · gw next --run ${p.run}`).join('\n'),
+      )
+    }
+  }
 
   // Law 5: a gated stage needs a person to say yes. The flag exists so the
   // approval is an explicit act rather than a side effect of finishing work —

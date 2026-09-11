@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { newRunState, advance, directive, type RunState } from '../src/state.js'
+import { newRunState, advance, directive, sectionFinished, type RunState } from '../src/state.js'
 import { STAGES, STAGE_SPECS, isImplemented, firstBlockingStage } from '../src/stages.js'
 
 const make = (): RunState => newRunState({
@@ -132,5 +132,46 @@ describe('protocol — what Claude gets back from `gw next`', () => {
     }
     expect(() => advance(s, 'survey', { status: 'skipped', reason: 'single component, nothing to compose' }))
       .not.toThrow()
+  })
+})
+
+describe('sections of a view — specs/004', () => {
+  const section = (): RunState => {
+    const s = newRunState({
+      id: 'overlay-form-01', mode: 'component',
+      url: 'https://figma.com/design/X?node-id=1-3', fileKey: 'X', nodeId: '1:3', name: 'OverlayForm',
+    })
+    s.parent = 'home-01'
+    return s
+  }
+
+  // The registry and the barrel are one file each; sections registering
+  // themselves in parallel would write them at the same time.
+  it('a section is told that registering it is the view\'s job', () => {
+    const s = section()
+    s.stage = 'library:register'
+    const d = directive(s, '/repo')
+    expect(d.actor).toBe('code')
+    expect(d.inputs.owner).toBe('home-01')
+    expect(d.action).toMatch(/stop/i)
+  })
+
+  it('and so is its report', () => {
+    const s = section()
+    s.stage = 'report'
+    expect(directive(s, '/repo').inputs.owner).toBe('home-01')
+  })
+
+  it('a section is finished once it is frozen', () => {
+    const s = section()
+    expect(sectionFinished(s)).toBe(false)
+    s.stages.golden = { status: 'done' }
+    expect(sectionFinished(s)).toBe(true)
+  })
+
+  it('a run with no parent is untouched', () => {
+    const s = make()
+    s.stage = 'library:register'
+    expect(directive(s, '/repo').inputs.owner).toBeUndefined()
   })
 })

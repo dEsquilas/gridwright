@@ -72,11 +72,32 @@ export interface FigmaNode {
   exportSettings?: unknown[]
   componentPropertyDefinitions?: Record<string, { type: string; variantOptions?: string[] }>
   componentProperties?: Record<string, { type: string; value: string }>
+  /** On an `INSTANCE`: the main component it was made from. What makes two
+   *  sections of a view the same section. */
+  componentId?: string
+}
+
+/** A main component, as the nodes endpoint describes it alongside the tree. */
+export interface FigmaComponentMeta {
+  key?: string
+  name: string
+  /** Set when the component is one variant of a set — which is the thing a
+   *  designer calls "the component". */
+  componentSetId?: string
+}
+
+export interface FigmaComponentSetMeta {
+  key?: string
+  name: string
 }
 
 export interface FigmaNodesResponse {
   name?: string
-  nodes: Record<string, { document: FigmaNode } | undefined>
+  nodes: Record<string, {
+    document: FigmaNode
+    components?: Record<string, FigmaComponentMeta>
+    componentSets?: Record<string, FigmaComponentSetMeta>
+  } | undefined>
 }
 
 export interface FigmaImagesResponse {

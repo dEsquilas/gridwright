@@ -38,6 +38,23 @@ export const paths = {
    * namespace, where they collided.
    */
   baseline: (r: string, name: string) => join(r, GW_DIR, 'baselines', name),
+  /**
+   * The views, kept apart from the library.
+   *
+   * A view is a leaf: nothing imports it, so it has no business in the barrel,
+   * and listing it in the registry beside the sections made "what can I reuse"
+   * and "what have we built" the same question. Committed, like the baselines.
+   */
+  views: (r: string) => join(r, GW_DIR, 'views.json'),
+  /**
+   * Where `verify` mounts this run's component.
+   *
+   * It was one fixed `.gridwright/harness/` for everything, deleted when a
+   * verify started and again when it finished — so two sections verifying at
+   * once did not just overwrite each other's entry file, one deleted the
+   * other's harness in the middle of its measurement.
+   */
+  runHarness: (r: string, id: string) => join(r, GW_DIR, 'runs', id, 'harness'),
   dashboard: (r: string) => join(r, GW_DIR, 'dashboard'),
   /** Screenshots and diffs from the last `gw verify` outside a run — a loose
    *  calibration against a Figma URL, which belongs to no run. */

@@ -10,7 +10,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, extname } from 'node:path'
-import type { Framework, GridwrightConfig } from '@gridwright/core'
+import { paths, type Framework, type GridwrightConfig } from '@gridwright/core'
 
 export * from './placement.js'
 
@@ -19,7 +19,7 @@ export interface RegistryEntry {
   /** A module or a whole view. The library is browsed by this before anything
    *  else — "what do we have" is two questions, not one. */
   mode?: 'component' | 'view'
-  figma: { file: string; node: string; irHash: string }
+  figma: { file: string; node: string; irHash: string; identity?: string }
   props: string[]
   tokens: string[]
   baseline?: string
@@ -91,7 +91,7 @@ export interface RegisterInput {
    *  barrel that re-exports a default from a file that has none breaks the
    *  build of every consumer, and it does it at import time. */
   exportShape?: string
-  figma: { file: string; node: string; irHash: string }
+  figma: { file: string; node: string; irHash: string; identity?: string }
   props: string[]
   tokens: string[]
   baseline?: string
@@ -123,7 +123,12 @@ export function registerComponent(
 ): RegisterResult {
   const registry = readRegistry(root, config)
 
-  const previous = Object.entries(registry).find(([, e]) => e.figma.irHash === input.figma.irHash)
+  // The same design — or the same main component, which is sturdier: an
+  // instance's overrides change its IR hash, so two uses of `overlay-form` with
+  // different copy hashed differently and registered twice.
+  const previous = Object.entries(registry).find(([, e]) =>
+    e.figma.irHash === input.figma.irHash
+    || (!!input.figma.identity && e.figma.identity === input.figma.identity))
   const name = previous ? previous[0] : input.name
 
   const entry: RegistryEntry = {
@@ -205,6 +210,65 @@ function sortKeys(registry: Registry): Registry {
  *  in the shape that stage needs, rather than being reshaped later. */
 export function findByHash(registry: Registry, irHash: string): [string, RegistryEntry] | null {
   return Object.entries(registry).find(([, e]) => e.figma.irHash === irHash) ?? null
+}
+
+/** A section already in the library, by its main component. What makes the
+ *  second view that uses the same footer reuse it instead of rebuilding it. */
+export function findByIdentity(registry: Registry, identity: string): [string, RegistryEntry] | null {
+  return Object.entries(registry).find(([, e]) => e.figma.identity === identity) ?? null
+}
+
+// --- views --------------------------------------------------------------------
+
+/**
+ * A view, recorded outside the library.
+ *
+ * A view is a leaf — it composes, and nothing composes it — so it has no place
+ * in the barrel, and keeping it in the registry made "what can I reuse" and
+ * "what have we built" the same list. It still has goldens, and the dashboard
+ * still shows it; this is what it reads.
+ */
+export interface ViewRecord {
+  path: string
+  figma: { file: string; node: string; irHash: string }
+  /** The library sections it is composed of, by registry name. */
+  sections: string[]
+  score?: number
+  viewports?: Array<{ name: string; width: number; total: number }>
+  runs: number
+  updatedAt: string
+}
+
+export type ViewsManifest = Record<string, ViewRecord>
+
+export function readViews(root: string): ViewsManifest {
+  const file = paths.views(root)
+  if (!existsSync(file)) return {}
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')) as ViewsManifest
+  } catch {
+    return {}
+  }
+}
+
+export function recordView(
+  root: string,
+  name: string,
+  record: Omit<ViewRecord, 'runs' | 'updatedAt'>,
+): ViewRecord {
+  const views = readViews(root)
+  const previous = views[name]
+  const entry: ViewRecord = {
+    ...record,
+    runs: (previous?.runs ?? 0) + 1,
+    updatedAt: new Date().toISOString(),
+  }
+  views[name] = entry
+  const file = paths.views(root)
+  mkdirSync(dirname(file), { recursive: true })
+  const sorted = Object.fromEntries(Object.entries(views).sort(([a], [b]) => a.localeCompare(b)))
+  writeFileSync(file, JSON.stringify(sorted, null, 2) + '\n')
+  return entry
 }
 export * from './survey.js'
 export * from './conventions.js'

@@ -34,6 +34,8 @@ export interface VerifyOptions {
   css?: string[]
   /** How the component exports itself, from the project's own conventions. */
   exportShape?: string
+  /** This run's own harness directory, so runs can verify at the same time. */
+  harnessDir?: string
   viewports: Viewport[]
   weights: Weights
   threshold: number
@@ -81,6 +83,7 @@ export async function verify(opts: VerifyOptions): Promise<VerifyResult> {
     props: opts.props,
     css,
     ...(opts.exportShape ? { exportShape: opts.exportShape } : {}),
+    ...(opts.harnessDir ? { dir: opts.harnessDir } : {}),
   })
 
   const viewportScores: ViewportScore[] = []

@@ -8,7 +8,7 @@
 
 import { mask } from '@gridwright/core'
 import { describeStatus, FigmaError } from './errors.js'
-import type { FigmaImagesResponse, FigmaMe, FigmaNode, FigmaNodesResponse } from './types.js'
+import type { FigmaImagesResponse, FigmaMe, FigmaNode, FigmaNodesResponse, FigmaComponentMeta, FigmaComponentSetMeta } from './types.js'
 
 const API = 'https://api.figma.com/v1'
 
@@ -73,7 +73,15 @@ export class FigmaClient {
     return this.get<FigmaMe>('/me')
   }
 
-  async node(fileKey: string, nodeId: string): Promise<{ document: FigmaNode; fileName?: string }> {
+  async node(fileKey: string, nodeId: string): Promise<{
+    document: FigmaNode
+    fileName?: string
+    /** The main components the tree's instances point at. Kept rather than
+     *  discarded: in a view, this is how two instances turn out to be one
+     *  section, and how a section learns what the library calls it. */
+    components: Record<string, FigmaComponentMeta>
+    componentSets: Record<string, FigmaComponentSetMeta>
+  }> {
     const res = await this.get<FigmaNodesResponse>(
       `/files/${fileKey}/nodes?ids=${encodeURIComponent(nodeId)}`,
       { fileKey, nodeId },
@@ -90,7 +98,12 @@ export class FigmaClient {
           'Copy the link again with "Copy link to selection".',
       )
     }
-    return { document: entry.document, fileName: res.name }
+    return {
+      document: entry.document,
+      fileName: res.name,
+      components: entry.components ?? {},
+      componentSets: entry.componentSets ?? {},
+    }
   }
 
   /**

@@ -205,7 +205,7 @@ and the score then reports a layout problem that is really a copy problem.
 | Command | |
 |---|---|
 | `gw build <url>` | opens a run and executes as far as it goes |
-| `gw next [--json]` | which stage is up and who runs it — **the protocol** |
+| `gw next [--json] [--run <id>]` | which stage is up and who runs it — **the protocol** |
 | `gw done [--output …]` | that stage is finished, here is what it produced |
 | `gw skip <stage> --reason` | it did not run, and why — on the record |
 | `gw verify` | render, measure, score |
@@ -217,6 +217,50 @@ and the score then reports a layout problem that is really a copy problem.
 
 The URL must come from Figma's **"Copy link to selection"**. An address-bar URL
 with no `node-id` is rejected, and correctly so.
+
+---
+
+## A whole view
+
+```bash
+gw build --view "https://www.figma.com/design/<KEY>/<name>?node-id=<page-frame>"
+```
+
+Point it at the page. Its sections are the page's immediate children, and
+gridwright lists them itself — a hand-written list of the same page, on a real
+file, missed three sections, included a background rectangle and named two nodes
+that did not exist. Your part is confirming the list, not writing it.
+
+```
+→ 10 sections under "home" — 62 values across the page
+    ✓ module   Hero                     run hero-01 · plan
+    ✓ module   SolutionsEntry           run solutions-entry-01 · plan
+    ✓ layout   NavMain                  run nav-main-01 · plan
+    ✓ module   OverlayForm              run overlay-form-01 · plan
+    · —        43                       part of the view — not in the library
+    …
+```
+
+Figma already says which sections are reusable. An **instance** of a library
+component becomes a section with its own run, and goes to the library as a
+module or a layout part. Anything else was drawn for that page, and is built
+inside the view. Two instances of one component set are built once, and a
+component already in the library is reused rather than rebuilt — which is what
+makes the second page cheap. Sections are named after their component set, not
+their layer: `home-signals` is an instance of `overlay-form`, and registering
+the layer's name would make the next page that uses it build a second one.
+
+**The view is the only run that writes anything shared.** It fetches the page
+once, resolves every section's values together — one tokens gate, and one name
+per colour instead of one per section that uses it — and at the end registers
+the sections one after another. That is what lets the sections themselves run
+side by side, each through every stage from `plan` to `golden`, with `--run` on
+every command. The view is composed once they are all frozen; `gw done` refuses
+before that.
+
+**A view is not a library component.** Nothing imports a page, so it is
+recorded in `.gridwright/views.json` rather than the registry, and the
+dashboard lists it under *Views* with its own goldens.
 
 ---
 
@@ -386,6 +430,7 @@ tell you whether a component is right. Two pictures and a slider can.
 .gridwright/
   runs/<id>/            the IR, measurements, resolutions, screenshots — gitignored
   baselines/<Name>/     figma.png, design.png, mobile.png…  — committed, they are tests
+  views.json            the views — committed, and kept out of the library
   dashboard/index.html  the library
 
 <placement dir>/<Name>            the component
@@ -427,10 +472,15 @@ for the page.
 
 Written down rather than left to be discovered.
 
-- **View mode has been built but barely run.** A view composes; `survey` stops
-  being optional there, because skipping it rebuilds the button, the card and
-  the hero the project already has. The composition path works; what a *visual*
-  check of a whole view should compare against is still open.
+- **Tailwind v4 colours never match.** A project whose tokens live in CSS —
+  shadcn's `--color-primary: var(--primary)` over `--primary: oklch(…)` — is
+  read, but the `var()` is not followed and `oklch()` is not compared, and the
+  framework's default palette is missing for v4. So every colour a design brings
+  is proposed as new. Spacing and type resolve; colour does not.
+- **A whole view has been built and handed out, not yet composed end to end.**
+  On a real ten-section page, the sections were classified, deduplicated, given
+  their own runs and made to wait for the view; no page has yet gone all the
+  way to composed, registered and frozen.
 - **`survey` is name-first.** It matches what a design and a component are
   called, falls back to a rough shape, and says which signal it used. It will
   miss a component that does the same job under a different name.

@@ -125,6 +125,54 @@ gw next                    # what is up next and who runs it
 The URL must come from Figma's **"Copy link to selection"**. An address-bar URL
 with no `node-id` is rejected, and correctly so.
 
+## Building a whole view
+
+```bash
+gw build --view "<url of the page frame>"
+```
+
+Give it the page, never a list of its sections. gridwright takes the page's
+immediate children, and that is the list: a hand-written one of a real page
+missed three sections, included a background rectangle and named two nodes that
+did not exist. Your part is to **confirm** the list with the person at `plan` —
+`inputs.sections` has it — not to write it.
+
+Each immediate child is one of four things, and `gw next` says which:
+
+- **a section to build** — made from a library component; it has its own run
+- **reused** — that component is already in the library
+- **the same as another section** in this view — built once
+- **part of the view** — drawn for this page; you build it inside the view, and
+  it never goes to the library
+
+The view does everything shared, once: tokens for the whole page (one gate),
+the library's structure, and, at the end, registering every section in order.
+That is what lets the sections run side by side.
+
+**When the view reaches `author` and `gw next` lists `inputs.pending`, build the
+sections in parallel** — one agent each, in the same tree, every stage from
+`plan` to `golden`, and `--run <id>` on every command:
+
+```bash
+gw next --json --run <section-run>     # always --run: several runs are open
+gw done --run <section-run> --output '{"file": "...", "props": {...}}'
+gw verify --run <section-run>
+gw golden --run <section-run>
+```
+
+A section stops when `gw next --run` says its view closes it. Do not register a
+section yourself: the registry and the barrel are one file each, and sections
+writing them at once is exactly what the view exists to prevent. If a section's
+`gw next` says it is waiting on its view, it is — its tokens are not written
+yet.
+
+Then compose the view. `inputs.sections` gives each section's file, or the
+library component it reuses, and its `layerName` — the name the view's IR uses
+for that box, which is often not the component's name (`home-signals` in the IR
+is `OverlayForm` in the library). Put the IR's label on each section's wrapper,
+like any other node. `gw done` refuses to close the view's `author` while a
+section is unfinished.
+
 ## Rules that hold at every stage
 
 **A node's `tokens` are a specification, not a hint.** Every value in there was

@@ -42,6 +42,14 @@ export interface HarnessOptions {
    *  is a column of unstyled text. */
   css?: string[]
   port?: number
+  /**
+   * Where to generate the harness. Defaults to `.gridwright/harness/`.
+   *
+   * A run passes its own directory: the default is deleted when a harness
+   * starts and again when it closes, so two running at once took each other's
+   * away mid-measurement.
+   */
+  dir?: string
 }
 
 export interface Harness {
@@ -52,7 +60,7 @@ export interface Harness {
 const DIR = '.gridwright/harness'
 
 export async function startHarness(opts: HarnessOptions): Promise<Harness> {
-  const dir = join(opts.projectRoot, DIR)
+  const dir = opts.dir ?? join(opts.projectRoot, DIR)
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
 
