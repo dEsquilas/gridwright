@@ -274,6 +274,19 @@ export function sectionFinished(run: RunState): boolean {
   return g === 'done' || g === 'skipped'
 }
 
+/**
+ * A section that finished without being built: skipped on the record, so it
+ * wrote no file and there is nothing of it to register.
+ *
+ * The view's `library:register` asked every finished section for its file and
+ * stopped at the first that had none — a section distill refused, skipped with
+ * `gw skip`. Every section after it stayed out of the library, and the view,
+ * whose register stage is mandatory, could never close.
+ */
+export function sectionSkipped(run: RunState): boolean {
+  return sectionFinished(run) && run.stages.author.status === 'skipped'
+}
+
 /** The sections of a view that still have work to do, with their runs. */
 export function pendingSections(root: string, view: RunState): Array<SectionRef & { state: RunState | null }> {
   return (view.sections ?? [])

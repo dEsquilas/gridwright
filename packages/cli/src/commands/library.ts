@@ -9,7 +9,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, resolve as resolvePath } from 'node:path'
 import {
-  activeRun, advance, loadConfig, loadState, paths, saveState, sectionFinished,
+  activeRun, advance, loadConfig, loadState, paths, saveState, sectionFinished, sectionSkipped,
   type IR, type RunState, type GridwrightConfig, type RunScore,
 } from '@gridwright/core'
 import { ensureLibrary, registerComponent, readRegistry, findByHash, recordView, inferKind } from '@gridwright/library'
@@ -227,6 +227,16 @@ function registerView(root: string, config: GridwrightConfig, run: RunState): vo
     if (!child) fail(`Section ${ref.name} has no run (${ref.run}).`)
     if (!sectionFinished(child)) {
       fail(`Section ${ref.name} is not finished — it is on ${child.stage}.`, `gw next --run ${child.id}`)
+    }
+    // Skipped on the record, so it wrote nothing: say so, close its last two
+    // stages, and go on to the next section instead of stopping the page.
+    if (sectionSkipped(child)) {
+      warn(`${ref.name} was skipped — nothing to register. ${dim(child.stages.author.reason ?? '')}`)
+      const note = { registered: false, by: run.id, reason: 'section skipped on the record' }
+      if (child.stage === 'library:register') advance(child, 'library:register', { status: 'done', output: note })
+      if (child.stage === 'report') advance(child, 'report', { status: 'done', output: { by: run.id } })
+      saveState(root, child)
+      continue
     }
     const file = child.stages.author.output?.file
     if (typeof file !== 'string') fail(`Section ${ref.name} did not record the file it wrote.`)

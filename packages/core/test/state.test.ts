@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { newRunState, advance, directive, sectionFinished, type RunState } from '../src/state.js'
+import { newRunState, advance, directive, sectionFinished, sectionSkipped, type RunState } from '../src/state.js'
 import { STAGES, STAGE_SPECS, isImplemented, firstBlockingStage } from '../src/stages.js'
 
 const make = (): RunState => newRunState({
@@ -167,6 +167,26 @@ describe('sections of a view — specs/004', () => {
     expect(sectionFinished(s)).toBe(false)
     s.stages.golden = { status: 'done' }
     expect(sectionFinished(s)).toBe(true)
+  })
+
+  // A section distill refuses is skipped on the record. It is finished, but it
+  // wrote nothing — and the view's register used to stop on it, leaving every
+  // section after it out of the library.
+  it('a section skipped on the record is finished, with nothing to register', () => {
+    const s = section()
+    expect(sectionSkipped(s)).toBe(false)
+    s.stages.author = { status: 'skipped', reason: 'distill refused' }
+    s.stages.golden = { status: 'skipped', reason: 'distill refused' }
+    expect(sectionFinished(s)).toBe(true)
+    expect(sectionSkipped(s)).toBe(true)
+  })
+
+  it('a section that was built is not skipped, whatever it skipped later', () => {
+    const s = section()
+    s.stages.author = { status: 'done', output: { file: 'src/components/modules/OverlayForm/index.tsx' } }
+    s.stages.golden = { status: 'skipped', reason: 'no baseline wanted' }
+    expect(sectionFinished(s)).toBe(true)
+    expect(sectionSkipped(s)).toBe(false)
   })
 
   it('a run with no parent is untouched', () => {
