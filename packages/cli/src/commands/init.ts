@@ -181,8 +181,13 @@ function detectTokenTarget(root: string): { target: GridwrightConfig['tokens']['
     }
   }
 
-  for (const rel of ['src/style.css', 'src/styles.css', 'src/app.css', 'src/assets/css/app.css',
-                     'resources/css/app.css', 'app/globals.css', 'styles/globals.css']) {
+  // `src/index.css` first: it is where Vite's React template and shadcn both
+  // put Tailwind, and it was not on this list — so a stock Vite + shadcn project
+  // came out with no token system at all, and every value in a design was
+  // proposed as new.
+  for (const rel of ['src/index.css', 'src/globals.css', 'src/global.css', 'src/style.css', 'src/styles.css',
+                     'src/app.css', 'src/assets/css/app.css', 'resources/css/app.css',
+                     'app/globals.css', 'app/app.css', 'styles/globals.css']) {
     const p = join(root, rel)
     if (!existsSync(p)) continue
     const src = readFileSync(p, 'utf8')
