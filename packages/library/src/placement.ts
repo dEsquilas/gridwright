@@ -106,13 +106,18 @@ const IGNORED = new Set(['node_modules', 'dist', 'build', 'out', '.next', 'cover
 export function detectPlacements(root: string): Placement[] {
   const dirs = walk(root, '', 0, 3)
   const out: Placement[] = []
+  // A proposal goes beside the rest of the source. A Vite project keeps all of
+  // it under `src/`, and proposing `components/modules` there put the first
+  // module outside the tree the build compiles — every section of a view asked
+  // for a directory the project would not have looked in.
+  const base = existsSync(join(root, 'src')) ? 'src/' : ''
 
   for (const kind of PLACEMENT_KINDS) {
     const matches = allMatches(root, dirs, VOCABULARY[kind])
     const [best, ...rest] = matches
     out.push(best
       ? { kind, dir: best, from: 'found', ...(rest.length ? { alternatives: rest } : {}) }
-      : { kind, dir: FALLBACK[kind], from: 'absent' })
+      : { kind, dir: base + FALLBACK[kind], from: 'absent' })
   }
   return out
 }

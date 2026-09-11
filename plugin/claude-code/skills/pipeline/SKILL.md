@@ -160,6 +160,11 @@ gw verify --run <section-run>
 gw golden --run <section-run>
 ```
 
+Do not run the project's build from a section. Nine sections building at once
+all write the same `dist/`, and one of them fails for a reason that has nothing
+to do with its component. `tsc --noEmit` tells you your file compiles; `gw
+verify` tells you it renders.
+
 A section stops when `gw next --run` says its view closes it. Do not register a
 section yourself: the registry and the barrel are one file each, and sections
 writing them at once is exactly what the view exists to prevent. If a section's
