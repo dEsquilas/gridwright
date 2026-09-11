@@ -12,9 +12,12 @@
  */
 
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
-import { join, relative, isAbsolute } from 'node:path'
-import { createServer, type ViteDevServer } from 'vite'
+import { join, relative, isAbsolute, dirname } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import type { ViteDevServer } from 'vite'
 import type { Framework } from '@gridwright/core'
+
+type CreateServer = typeof import('vite')['createServer']
 
 export interface HarnessOptions {
   /** Root of the consuming project — where node_modules and the CSS live. */
@@ -54,11 +57,15 @@ export async function startHarness(opts: HarnessOptions): Promise<Harness> {
   mkdirSync(dir, { recursive: true })
 
   writeFileSync(join(dir, 'index.html'), indexHtml())
-  writeFileSync(join(dir, entryName(opts.framework)), entrySource(opts, dir))
+  const stylesheet = tailwindSourceStylesheet(dir, opts.projectRoot, opts.css ?? [])
+  if (stylesheet) writeFileSync(join(dir, 'harness.css'), stylesheet)
+  const css = stylesheet ? [join(dir, 'harness.css')] : opts.css
+  writeFileSync(join(dir, entryName(opts.framework)), entrySource({ ...opts, css }, dir))
   writeFileSync(join(dir, 'vite.config.mjs'), viteConfig(opts))
 
   let server: ViteDevServer
   try {
+    const { createServer } = await loadVite(opts.projectRoot)
     server = await createServer({
       configFile: join(dir, 'vite.config.mjs'),
       root: dir,
@@ -161,18 +168,24 @@ createRoot(document.getElementById('gw-root')).render(
 `
 }
 
-function viteConfig(opts: HarnessOptions): string {
+export function viteConfig(opts: Pick<HarnessOptions, 'projectRoot' | 'framework'>): string {
   // The plugin is resolved from the project, not from gridwright: the component
   // has to compile against the same React or Vue version the project ships.
   const plugin = opts.framework === 'vue3'
     ? "import plugin from '@vitejs/plugin-vue'"
     : "import plugin from '@vitejs/plugin-react'"
 
+  // Tailwind v4 through its Vite plugin has no postcss config to find: the
+  // project's own vite.config is what compiles it, and the harness does not
+  // load that file. Without the plugin every utility class is inert and the
+  // component renders as unstyled text, scoring as though it were wrong.
+  const tailwind = projectDependsOn(opts.projectRoot, '@tailwindcss/vite')
+
   return `${plugin}
-import { defineConfig } from 'vite'
+${tailwind ? "import tailwindcss from '@tailwindcss/vite'\n" : ''}import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [plugin()],
+  plugins: [plugin()${tailwind ? ', tailwindcss()' : ''}],
   resolve: {
     alias: { '@': ${JSON.stringify(join(opts.projectRoot, 'src'))} },
     // Without this the component and the harness load two copies of the
@@ -209,7 +222,9 @@ function importPath(from: string, target: string): string {
 export function findProjectCss(projectRoot: string): string[] {
   const candidates = [
     'styles/global.css', 'styles/theme.css',
-    'src/style.css', 'src/styles.css', 'src/app.css',
+    // src/index.css is where Vite's React template puts it, and where shadcn's
+    // init writes its theme.
+    'src/style.css', 'src/styles.css', 'src/app.css', 'src/index.css',
     'src/assets/css/app.css', 'resources/css/app.css',
     'app/globals.css', 'styles/globals.css', 'dist/output.css',
   ]
@@ -222,9 +237,11 @@ export function findProjectCss(projectRoot: string): string[] {
   }
   if (found.length === 0) return []
 
-  // Only prefer the source when the project can actually process it.
+  // Only prefer the source when the project can actually process it: a postcss
+  // config, or Tailwind v4's Vite plugin, which `viteConfig` loads.
   const canCompile = ['postcss.config.js', 'postcss.config.cjs', 'postcss.config.mjs', 'postcss.config.ts']
     .some((c) => existsSync(join(projectRoot, c)))
+    || projectDependsOn(projectRoot, '@tailwindcss/vite')
 
   const preferred = canCompile ? found.find((f) => f.source) : undefined
   return [(preferred ?? found[0]!).path]
@@ -239,4 +256,116 @@ function isSourceStylesheet(path: string): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * Vite as the project has it, not as gridwright does.
+ *
+ * The generated config imports the project's framework plugin, and that plugin
+ * is built for the project's Vite. Serving it with gridwright's own Vite 6 put
+ * a Vite 8 project's `@vitejs/plugin-react` — rolldown-only — inside a Vite 6
+ * server: "Missing field `moduleType`", a blank page, and "rendered nothing at
+ * 375px" about a component that compiled. gridwright's copy is the fallback for
+ * a project that has no Vite of its own.
+ */
+export async function loadVite(projectRoot: string): Promise<{ createServer: CreateServer; from: 'project' | 'gridwright' }> {
+  const entry = resolveProjectModule(projectRoot, 'vite')
+  if (entry) {
+    const mod = await import(pathToFileURL(entry).href) as { createServer: CreateServer }
+    return { createServer: mod.createServer, from: 'project' }
+  }
+  const mod = await import('vite')
+  return { createServer: mod.createServer, from: 'gridwright' }
+}
+
+/** The ESM entry of a package installed in the project, or null. */
+export function resolveProjectModule(projectRoot: string, name: string): string | null {
+  const pkgPath = projectPackageJson(projectRoot, name)
+  if (!pkgPath) return null
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+      exports?: unknown; module?: string; main?: string
+    }
+    const exp = pkg.exports && typeof pkg.exports === 'object' && '.' in pkg.exports
+      ? (pkg.exports as Record<string, unknown>)['.']
+      : pkg.exports
+    const entry = exportTarget(exp) ?? pkg.module ?? pkg.main
+    return entry ? join(dirname(pkgPath), entry) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Node's lookup, minus NODE_PATH.
+ *
+ * `createRequire(...).resolve` consults NODE_PATH, and the pnpm shim that
+ * launches `gw` sets it to gridwright's own store — so a project with no Vite
+ * of its own resolved gridwright's Vite 5 and reported it as the project's.
+ * Walking up `node_modules` from the project is the part of the algorithm that
+ * is actually about the project.
+ */
+function projectPackageJson(projectRoot: string, name: string): string | null {
+  let dir = projectRoot
+  for (;;) {
+    const candidate = join(dir, 'node_modules', name, 'package.json')
+    if (existsSync(candidate)) return candidate
+    const parent = dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
+}
+
+/** The file an `exports` entry points at for `import`. */
+function exportTarget(entry: unknown): string | undefined {
+  if (typeof entry === 'string') return entry
+  if (entry && typeof entry === 'object') {
+    const conditions = entry as Record<string, unknown>
+    for (const key of ['import', 'node', 'default']) {
+      const target = exportTarget(conditions[key])
+      if (target) return target
+    }
+  }
+  return undefined
+}
+
+/** Whether the project declares a package, in either dependency list. */
+export function projectDependsOn(projectRoot: string, name: string): boolean {
+  try {
+    const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>; devDependencies?: Record<string, string>
+    }
+    return [pkg.dependencies, pkg.devDependencies].some((deps) => deps !== undefined && name in deps)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The stylesheet the harness loads when the project is on Tailwind v4.
+ *
+ * v4 decides which classes to generate by scanning from its base, and under
+ * Vite the base is the Vite root — `.gridwright/harness`, which is gitignored
+ * and holds nothing but the entry. The component lives in the project's `src/`,
+ * so not one of its classes was generated: the theme and the font loaded, and
+ * the render was a column of unstyled text beside full-size images, scored as
+ * a layout 1,250px off.
+ *
+ * Wrapping the project's stylesheet and pointing `@source` at the project root
+ * puts the component back in the scan; the project's .gitignore still keeps
+ * node_modules out of it. Null when no stylesheet is v4 — v3 reads `content`
+ * from its own config and needs none of this.
+ */
+export function tailwindSourceStylesheet(dir: string, projectRoot: string, css: string[]): string | null {
+  const v4 = css.some((c) => {
+    try {
+      return /@import\s+['"]tailwindcss['"]/.test(readFileSync(c, 'utf8'))
+    } catch {
+      return false
+    }
+  })
+  if (!v4) return null
+
+  const imports = css.map((c) => `@import ${JSON.stringify(importPath(dir, c))};`)
+  return `${imports.join('\n')}\n@source ${JSON.stringify(relative(dir, projectRoot) || '.')};\n`
 }

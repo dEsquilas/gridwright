@@ -68,7 +68,13 @@ export async function render(browser: Browser, opts: RenderOptions): Promise<Ren
 
     const nodes = await collectBoxes(page, opts.minSize ?? 4)
     const sampled = await sampleColors(page, root, opts.probes)
+    // `fullPage`, or the clip stops at the viewport: a 1255px section rendered
+    // in a 900px viewport was captured as its top 900px, the reference was
+    // resized to match — squashed to 0.72 of its height — and the perceptual
+    // score compared two different pictures. The viewport is left alone rather
+    // than grown to fit, because a component sized in vh would reflow.
     const screenshot = await page.screenshot({
+      fullPage: true,
       clip: { x: root.x, y: root.y, width: root.width, height: root.height },
     })
 
@@ -149,12 +155,35 @@ async function sampleColors(page: Page, root: Box, probes: ColorProbe[]): Promis
   if (probes.length === 0) return []
   return page.evaluate(
     ({ root, probes }) => {
+      // Chromium does not normalise computed colours to rgb(). Tailwind v4
+      // declares its palette in oklch, and `getComputedStyle` hands that back
+      // as `oklch(0.205 0 0)` — `color-mix` as `oklab(…)`. Parsing only rgb()
+      // read every one of them as transparent: ΔE 100 on text that was the
+      // right colour. Anything that is not rgb() is painted onto one canvas
+      // pixel and read back, which is the browser's own conversion to sRGB.
+      const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true })
+      const SENTINEL = '#010203'
       const toHex = (value: string): string => {
-        const m = value.match(/rgba?\(([^)]+)\)/)
-        if (!m) return 'transparent'
-        const [r, g, b, a] = m[1]!.split(',').map((v) => parseFloat(v.trim()))
-        if (a !== undefined && a < 0.05) return 'transparent'
-        return '#' + [r, g, b].map((v) => Math.round(v!).toString(16).padStart(2, '0')).join('')
+        const hex = (r: number, g: number, b: number) =>
+          '#' + [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
+
+        const m = value.match(/^rgba?\(([^)]+)\)$/)
+        if (m) {
+          const [r, g, b, a] = m[1]!.split(/[\s,/]+/).filter(Boolean).map((v) => parseFloat(v))
+          if (a !== undefined && a < 0.05) return 'transparent'
+          return hex(r!, g!, b!)
+        }
+        if (!ctx || !value || value === 'transparent' || value === 'none') return 'transparent'
+
+        ctx.fillStyle = SENTINEL
+        ctx.fillStyle = value
+        // An assignment the canvas does not understand is ignored silently.
+        if (ctx.fillStyle === SENTINEL && value.toLowerCase() !== SENTINEL) return 'transparent'
+        ctx.clearRect(0, 0, 1, 1)
+        ctx.fillRect(0, 0, 1, 1)
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data
+        if (a! < 13) return 'transparent'
+        return hex(r!, g!, b!)
       }
 
       // Deepest first: the node's own label when the component has it, then
