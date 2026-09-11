@@ -19,6 +19,10 @@ export interface RegistryEntry {
   /** A module or a whole view. The library is browsed by this before anything
    *  else — "what do we have" is two questions, not one. */
   mode?: 'component' | 'view'
+  /** Where it was filed: module, layout, primitive, overlay. Decided once, when
+   *  it was built, so the library groups a header with the layout parts rather
+   *  than guessing again from the name. */
+  kind?: string
   figma: { file: string; node: string; irHash: string; identity?: string }
   props: string[]
   tokens: string[]
@@ -97,6 +101,7 @@ export interface RegisterInput {
   baseline?: string
   score?: number
   mode?: 'component' | 'view'
+  kind?: string
   viewports?: Array<{ name: string; width: number; total: number }>
 }
 
@@ -133,11 +138,14 @@ export function registerComponent(
 
   const entry: RegistryEntry = {
     path: relative(root, input.componentPath),
+    ...(input.mode ? { mode: input.mode } : {}),
+    ...(input.kind ? { kind: input.kind } : {}),
     figma: input.figma,
     props: input.props,
     tokens: input.tokens,
     ...(input.baseline ? { baseline: input.baseline } : {}),
     ...(input.score !== undefined ? { score: input.score } : {}),
+    ...(input.viewports?.length ? { viewports: input.viewports } : {}),
     runs: (previous?.[1].runs ?? 0) + 1,
     updatedAt: new Date().toISOString(),
   }

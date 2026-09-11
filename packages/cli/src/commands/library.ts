@@ -12,7 +12,7 @@ import {
   activeRun, advance, loadConfig, loadState, paths, saveState, sectionFinished,
   type IR, type RunState, type GridwrightConfig, type RunScore,
 } from '@gridwright/core'
-import { ensureLibrary, registerComponent, readRegistry, findByHash, recordView } from '@gridwright/library'
+import { ensureLibrary, registerComponent, readRegistry, findByHash, recordView, inferKind } from '@gridwright/library'
 import { ok, fail, info, warn, dim, bold, green, yellow } from '../ui.js'
 
 export interface LibraryArgs {
@@ -119,6 +119,11 @@ export function runRegister(root: string, args: LibraryArgs): void {
     props: authoredProps(run) ?? propsOf(ir),
     tokens: resolvedTokenNames(root, run.id, ir),
     ...(score !== undefined ? { score } : {}),
+    mode: run.mode,
+    kind: inferKind(run.name),
+    ...(measured ? {
+      viewports: measured.viewports.map((v) => ({ name: v.viewport, width: v.width, total: v.total })),
+    } : {}),
   })
 
   if (before) {
@@ -246,6 +251,7 @@ function registerView(root: string, config: GridwrightConfig, run: RunState): vo
       tokens: namesFrom(pageResolutions.filter((r) => r.raw && values.has(r.raw.value))),
       ...(score !== undefined ? { score } : {}),
       mode: 'component',
+      ...(ref.kind ? { kind: ref.kind } : {}),
       ...(measured ? {
         viewports: measured.viewports.map((v) => ({ name: v.viewport, width: v.width, total: v.total })),
       } : {}),

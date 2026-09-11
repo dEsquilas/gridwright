@@ -49,3 +49,21 @@ describe('views live outside the library — specs/004', () => {
     expect(JSON.parse(readFileSync(join(root, '.gridwright/views.json'), 'utf8'))).toHaveProperty('Home')
   })
 })
+
+describe('what the registry keeps', () => {
+  // `mode` and `viewports` were read by the dashboard for several commits and
+  // never written: the edit that added them aborted on an unrelated assertion,
+  // and the dashboard's fallback to the run hid it until the runs were gone.
+  it('keeps the mode, the kind and the per-viewport scores it was given', () => {
+    registerComponent(root, config, {
+      name: 'NavFooter', componentPath: join(root, 'src/components/NavFooter.tsx'),
+      figma: figma('fff', 'c-footer'), props: [], tokens: [],
+      mode: 'component', kind: 'layout',
+      viewports: [{ name: 'design', width: 1440, total: 91.2 }],
+    })
+    const entry = readRegistry(root, config).NavFooter!
+    expect(entry.mode).toBe('component')
+    expect(entry.kind).toBe('layout')
+    expect(entry.viewports).toEqual([{ name: 'design', width: 1440, total: 91.2 }])
+  })
+})
