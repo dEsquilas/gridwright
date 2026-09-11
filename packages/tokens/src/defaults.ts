@@ -51,22 +51,31 @@ const TAILWIND_FONT_SIZE: Record<string, string> = {
 }
 
 const SOURCE = 'tailwind (framework default)'
+/** How a token that came from the framework is marked, wherever it was read. */
+export const FRAMEWORK_SOURCE = SOURCE
 
-export function frameworkDefaults(target: string): ExistingToken[] {
+export function frameworkDefaults(target: string, installed?: ExistingToken[] | null): ExistingToken[] {
   // Only Tailwind for now, and only where the target says so. Inventing a scale
   // for a project that does not use one would be worse than knowing none.
   if (target !== 'tailwind-config' && target !== 'tailwind-theme') return []
 
   const out: ExistingToken[] = []
-  const add = (section: string, kind: ExistingToken['kind'], scale: Record<string, string>) => {
-    for (const [name, value] of Object.entries(scale)) {
-      out.push({ name: `${section}.${name}`, kind, value, comparable: true, source: SOURCE })
-    }
+  const add = (section: string, kind: ExistingToken['kind'], table: Record<string, string>) => {
+    out.push(...scale(section, kind, table))
   }
 
+  add('borderWidth', 'border', TAILWIND_BORDER)
+  // Tailwind v4's palette, type scale, radii, shadows and spacing, as installed.
+  // The v3 copies below have no colours at all, which is why a v4 project could
+  // never match `neutral-900`, and a fixed spacing list, which is why 120px was
+  // proposed as new where `p-30` exists.
+  if (installed?.length) {
+    return installed.some((t) => t.kind === 'spacing')
+      ? [...out, ...installed]
+      : [...out, ...scale('spacing', 'spacing', TAILWIND_SPACING), ...installed]
+  }
   add('spacing', 'spacing', TAILWIND_SPACING)
   add('borderRadius', 'radius', TAILWIND_RADIUS)
-  add('borderWidth', 'border', TAILWIND_BORDER)
   add('fontSize', 'typography', TAILWIND_FONT_SIZE)
   return out
 }
@@ -78,9 +87,13 @@ export function frameworkDefaults(target: string): ExistingToken[] {
  * the name the project chose is the one its own code already uses. A colour
  * named `section-gap` beats `spacing.14` even at the identical value.
  */
-export function withDefaults(project: ExistingToken[], target: string): ExistingToken[] {
+function scale(section: string, kind: ExistingToken['kind'], table: Record<string, string>): ExistingToken[] {
+  return Object.entries(table).map(([name, value]) => ({ name: `${section}.${name}`, kind, value, comparable: true, source: SOURCE }))
+}
+
+export function withDefaults(project: ExistingToken[], target: string, installed?: ExistingToken[] | null): ExistingToken[] {
   const declared = new Set(project.map((t) => t.name))
-  return [...project, ...frameworkDefaults(target).filter((d) => !declared.has(d.name))]
+  return [...project, ...frameworkDefaults(target, installed).filter((d) => !declared.has(d.name))]
 }
 
 /** Whether a match came from the framework rather than the project. Reported at

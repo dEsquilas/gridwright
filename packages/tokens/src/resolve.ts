@@ -26,6 +26,13 @@ export interface Resolution {
   note?: string
   /** Proposed name, filled in by the agent at the `tokens` stage. */
   proposedName?: string
+  /**
+   * For a composite in `new`: the parts the system does not have. A border is a
+   * width and a colour, and when only the colour is missing, only the colour
+   * needs a name — the gate used to ask for one for the whole `1px solid #9aa3ad`,
+   * and write it as a single token.
+   */
+  missing?: Array<{ label: string; kind: TokenKind; value: string }>
 }
 
 export interface ResolveOptions {
@@ -89,6 +96,7 @@ function resolveComposite(
 
   const found: string[] = []
   const missing: string[] = []
+  const missingParts: Array<{ label: string; kind: TokenKind; value: string }> = []
 
   for (const part of parts) {
     const candidates = existing.filter((e) => e.kind === part.kind && e.comparable)
@@ -97,8 +105,10 @@ function resolveComposite(
       ? resolveColor(asRaw, candidates, opts)
       : resolveLength(asRaw, candidates, opts)
 
-    if (r.bucket === 'new') missing.push(`${part.label} ${part.value}`)
-    else found.push(`${part.label} → ${r.match!.name}`)
+    if (r.bucket === 'new') {
+      missing.push(`${part.label} ${part.value}`)
+      missingParts.push({ label: part.label, kind: part.kind, value: part.value })
+    } else found.push(`${part.label} → ${r.match!.name}`)
   }
 
   if (missing.length === 0) {
@@ -113,7 +123,56 @@ function resolveComposite(
     note: found.length > 0
       ? `${found.join(', ')} exist; missing ${missing.join(', ')}`
       : `none of its parts are in the system`,
+    missing: missingParts,
   }
+}
+
+/**
+ * What actually needs a name at the gate: single values, never composites.
+ *
+ * A composite in `new` is replaced by the parts it is missing, and the same
+ * value arriving from several places — a colour in a border and in a gradient —
+ * is asked about once. What gets written is then a colour or a length a
+ * utility can use, not a `1px solid #9aa3ad` filed as one token.
+ */
+export function pendingParts(resolutions: Resolution[]): Resolution[] {
+  const out = new Map<string, Resolution>()
+  for (const r of resolutions) {
+    if (r.bucket !== 'new') continue
+    const parts: Resolution[] = r.missing?.length
+      ? r.missing.map((m) => ({
+          bucket: 'new' as const,
+          raw: { kind: m.kind as RawToken['kind'], value: m.value, usedIn: r.raw.usedIn },
+          note: `the ${m.label} of ${r.raw.value}`,
+        }))
+      : [r]
+    for (const p of parts) {
+      // A colour with alpha is its opaque colour, used faintly. Tailwind writes
+      // that as `bg-ink/10`, so `#181a191a` beside `#181a19` is one token to
+      // name, not two — and naming the faint one `ink-10` is exactly the kind
+      // of near-duplicate Law 4 exists to keep out.
+      const faint = p.raw.kind === 'color' ? opaque(p.raw.value) : null
+      const value = faint ?? p.raw.value
+      const key = `${p.raw.kind}|${value}`
+      const seen = out.get(key)
+      if (seen) seen.raw = { ...seen.raw, usedIn: [...new Set([...seen.raw.usedIn, ...p.raw.usedIn])] }
+      else {
+        out.set(key, {
+          ...p,
+          raw: { ...p.raw, value, usedIn: [...p.raw.usedIn] },
+          ...(faint ? { note: `${p.note ? `${p.note}; ` : ''}also used with alpha, as ${p.raw.value} — write it as /opacity` } : {}),
+        })
+      }
+    }
+  }
+  return [...out.values()]
+}
+
+/** `#rrggbbaa` with real transparency, as `#rrggbb`. Anything else, null. */
+function opaque(value: string): string | null {
+  const m = value.trim().toLowerCase().match(/^#([0-9a-f]{6})([0-9a-f]{2})$/)
+  if (!m || m[2] === 'ff') return null
+  return `#${m[1]}`
 }
 
 /** `1px solid #9aa3ad` → a width and a colour. The style is not a token. */

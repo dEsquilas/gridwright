@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, copyFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -126,5 +126,50 @@ describe('never downgrade a computed token to a literal', () => {
     writeTokens(dir, system(), [{ name: 'accent.600', value: '#ff5a3c', section: 'colors' }])
     const after = readTailwindConfig(join(dir, 'tailwind.config.js'), 'x')
     expect(after.tokens.find((t) => t.name === 'colors.accent.600')?.value).toBe('#ff5a3c')
+  })
+})
+
+describe('writing into a Tailwind v4 stylesheet', () => {
+  const shadcn = `@import "tailwindcss";
+
+@theme inline {
+  --color-primary: var(--primary);
+}
+
+:root {
+  --primary: oklch(0.205 0 0);
+}
+`
+  const setup = (css: string) => {
+    const root = mkdtempSync(join(tmpdir(), 'gw-v4-'))
+    mkdirSync(join(root, 'src'))
+    writeFileSync(join(root, 'src/index.css'), css)
+    return root
+  }
+  const system = { target: 'tailwind-theme' as const, file: 'src/index.css', tokens: [], sections: [] }
+
+  // In :root, `--color-brand-600` is a variable and `bg-brand-600` does not exist.
+  it('writes into @theme inline, never into :root, under the colour namespace', () => {
+    const root = setup(shadcn)
+    writeTokens(root, system, [{ name: 'brand.600', value: '#7f56d9', section: 'colors' }])
+    const out = readFileSync(join(root, 'src/index.css'), 'utf8')
+    const theme = out.slice(out.indexOf('@theme inline'), out.indexOf(':root'))
+    expect(theme).toContain('--color-brand-600: #7f56d9;')
+    expect(out.slice(out.indexOf(':root'))).not.toContain('brand')
+  })
+
+  it('prefers a plain @theme when the project has one', () => {
+    const root = setup(`@theme inline {\n  --color-a: red;\n}\n\n@theme {\n  --color-b: blue;\n}\n`)
+    writeTokens(root, system, [{ name: 'brand', value: '#7f56d9', section: 'colors' }])
+    const out = readFileSync(join(root, 'src/index.css'), 'utf8')
+    expect(out.slice(out.lastIndexOf('@theme {'))).toContain('--color-brand: #7f56d9;')
+  })
+
+  it('creates @theme when there is none, rather than a :root block', () => {
+    const root = setup(`@import "tailwindcss";\n`)
+    writeTokens(root, system, [{ name: 'gap-lg', value: '72px', section: 'spacing' }])
+    const out = readFileSync(join(root, 'src/index.css'), 'utf8')
+    expect(out).toContain('@theme {\n  --spacing-gap-lg: 72px;\n}')
+    expect(out).not.toContain(':root')
   })
 })

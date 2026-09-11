@@ -64,7 +64,7 @@ export function writeTokens(
 
   const after = system.target === 'tailwind-config'
     ? writeIntoTailwindConfig(abs, writes)
-    : writeIntoCss(before, writes)
+    : writeIntoCss(before, writes, system.target)
 
   writeFileSync(abs, after)
   return { file: system.file, written: writes, diff: unifiedDiff(system.file, before, after) }
@@ -81,7 +81,7 @@ export function previewTokens(
   const before = readFileSync(abs, 'utf8')
   const after = system.target === 'tailwind-config'
     ? writeIntoTailwindConfig(abs, writes, { dryRun: true })
-    : writeIntoCss(before, writes)
+    : writeIntoCss(before, writes, system.target)
   return unifiedDiff(system.file, before, after)
 }
 
@@ -181,21 +181,64 @@ function getOrCreateObject(parent: ObjectLiteralExpression, name: string): Objec
  * Kept as a text edit rather than a full CSS parse: the goal is to add lines to
  * an existing block, and reprinting someone's stylesheet through a parser would
  * reformat far more than it changed.
+ *
+ * In Tailwind v4 a token is a utility only inside `@theme`, and only under its
+ * namespace: `--color-brand` there gives `bg-brand`; the same line in `:root`
+ * gives a variable and no class at all. The first cut looked for `@theme {` or
+ * `:root {`, and shadcn's `@theme inline {` matched neither form it knew — so a
+ * shadcn stylesheet had its new colours written into `:root`, where no utility
+ * could reach them.
  */
-function writeIntoCss(source: string, writes: TokenWrite[]): string {
-  const lines = writes.map((w) => `  ${w.name.startsWith('--') ? w.name : `--${w.name}`}: ${w.value};`)
+function writeIntoCss(source: string, writes: TokenWrite[], target?: string): string {
+  const theme = target === 'tailwind-theme'
+  const lines = writes.map((w) => `  ${cssName(w, theme)}: ${w.value};`)
+  const wrap = theme ? '@theme' : ':root'
 
-  const blockStart = source.search(/@theme\s*\{|:root\s*\{/)
+  // A plain `@theme` first: `inline` changes how values are emitted, and a
+  // project that has both keeps its own tokens in the plain one.
+  const blockStart = theme
+    ? firstMatch(source, [/@theme\s*\{/, /@theme\s+inline\s*\{/])
+    : firstMatch(source, [/@theme\s*\{|:root\s*\{/])
   if (blockStart === -1) {
-    return `${source.trimEnd()}\n\n:root {\n${lines.join('\n')}\n}\n`
+    return `${source.trimEnd()}\n\n${wrap} {\n${lines.join('\n')}\n}\n`
   }
 
   const open = source.indexOf('{', blockStart)
   const close = matchingBrace(source, open)
-  if (close === -1) return `${source.trimEnd()}\n\n:root {\n${lines.join('\n')}\n}\n`
+  if (close === -1) return `${source.trimEnd()}\n\n${wrap} {\n${lines.join('\n')}\n}\n`
 
   const body = source.slice(open + 1, close).trimEnd()
   return `${source.slice(0, open + 1)}${body}\n${lines.join('\n')}\n${source.slice(close)}`
+}
+
+function firstMatch(source: string, patterns: RegExp[]): number {
+  for (const p of patterns) {
+    const i = source.search(p)
+    if (i !== -1) return i
+  }
+  return -1
+}
+
+/** Tailwind v4 namespaces, by the section a token was resolved into. */
+const V4_NAMESPACE: Record<string, string> = {
+  colors: 'color', color: 'color', spacing: 'spacing', borderRadius: 'radius', radius: 'radius',
+  boxShadow: 'shadow', shadow: 'shadow', fontSize: 'text', typography: 'text',
+}
+
+/**
+ * The property name a token is written under.
+ *
+ * For v4, under the namespace that makes it a utility. `brand.600` in the
+ * colours section is `--color-brand-600`; a name that already carries a
+ * namespace is left alone.
+ */
+function cssName(w: TokenWrite, theme: boolean): string {
+  const bare = w.name.replace(/^--/, '')
+  if (!theme) return `--${bare}`
+  if (/^(color|spacing|radius|shadow|text|font)-/.test(bare)) return `--${bare}`
+  const ns = V4_NAMESPACE[w.section]
+  const flat = bare.replace(/\./g, '-')
+  return ns ? `--${ns}-${flat}` : `--${flat}`
 }
 
 function matchingBrace(src: string, open: number): number {

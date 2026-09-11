@@ -16,7 +16,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Project, SyntaxKind, type ObjectLiteralExpression } from 'ts-morph'
-import { withDefaults } from './defaults.js'
+import { withDefaults, FRAMEWORK_SOURCE } from './defaults.js'
+import { parseCssColor } from './color.js'
 
 export type TokenKind = 'color' | 'spacing' | 'typography' | 'radius' | 'shadow' | 'border' | 'other'
 
@@ -67,7 +68,38 @@ const SECTION_KINDS: Record<string, TokenKind> = {
  */
 export function readTokenSystem(projectRoot: string, target?: string, file?: string): TokenSystem {
   const system = readDeclared(projectRoot, target, file)
-  return { ...system, tokens: withDefaults(system.tokens, system.target) }
+  // Tailwind v4's own scale is a stylesheet in the project's node_modules, in
+  // the version it actually has installed. Read from there rather than kept as
+  // a copy here that drifts with every release.
+  const installed = system.target === 'tailwind-theme' ? readInstalledTailwindTheme(projectRoot) : null
+  return { ...system, tokens: withDefaults(system.tokens, system.target, installed) }
+}
+
+/** Tailwind v4's default theme, as the project has it installed. */
+export function readInstalledTailwindTheme(projectRoot: string): ExistingToken[] | null {
+  const file = join(projectRoot, 'node_modules', 'tailwindcss', 'theme.css')
+  if (!existsSync(file)) return null
+  const src = readFileSync(file, 'utf8')
+  return [...parseCss(src, FRAMEWORK_SOURCE, 'tailwind-theme').tokens, ...spacingScale(src)]
+}
+
+/**
+ * Tailwind v4's spacing: every multiple of `--spacing`, not a list.
+ *
+ * v3 had a fixed scale, and that is what was here — so 120px and 52px were
+ * proposed as new tokens in a v4 project where `p-30` and `p-13` already exist.
+ * The steps go to 96 in halves, the range a layout plausibly uses; past that a
+ * value is almost certainly not spacing.
+ */
+function spacingScale(themeCss: string): ExistingToken[] {
+  const base = themeCss.match(/--spacing\s*:\s*([^;]+);/)
+  const px = base ? pxOf(base[1]!.trim()) : null
+  if (!px) return []
+  const out: ExistingToken[] = []
+  for (let n = 0; n <= 96; n += 0.5) {
+    out.push({ name: `spacing.${n}`, kind: 'spacing', value: `${n * px}px`, comparable: true, source: FRAMEWORK_SOURCE })
+  }
+  return out
 }
 
 function readDeclared(projectRoot: string, target?: string, file?: string): TokenSystem {
@@ -270,24 +302,125 @@ function isComparable(value: string, kind: TokenKind = 'other'): boolean {
 
 /** Tailwind v4's `@theme` block, and plain custom properties. */
 export function readCss(absPath: string, label: string, target?: string): TokenSystem {
-  const src = readFileSync(absPath, 'utf8')
+  return parseCss(readFileSync(absPath, 'utf8'), label, target)
+}
+
+/**
+ * Custom properties, resolved the way the browser would resolve them.
+ *
+ * The first reader took each `--x: value;` at face value, and a stock shadcn
+ * stylesheet defeated it completely. Its colours are declared twice over —
+ * `--color-primary: var(--primary)` inside `@theme inline`, and `--primary:
+ * oklch(0.205 0 0)` in `:root` — so the value read was a `var()`, and even
+ * followed it would have been an `oklch()` nothing could compare. Not one of
+ * the project's colours was comparable, and every colour a design brought was
+ * proposed as new.
+ *
+ * So `var()` is followed, the first declaration of a variable wins — the light
+ * theme on `:root` comes before the dark one, and a design is drawn in the
+ * light one — colours become hex, and `calc()` over lengths is evaluated,
+ * because that is how shadcn builds every radius.
+ *
+ * For Tailwind v4 only the namespaces that become utilities are tokens:
+ * `--color-*`, `--text-*`, `--radius-*`, `--shadow-*`, `--spacing-*`. A bare
+ * `--primary` is a variable, not a class, and offering it as a match would
+ * name something `bg-primary` could not reach.
+ */
+export function parseCss(src: string, label: string, target?: string): TokenSystem {
+  const vars = new Map<string, string>()
+  for (const m of src.matchAll(/--([a-z0-9-]+)\s*:\s*([^;]+);/gi)) {
+    if (!vars.has(m[1]!)) vars.set(m[1]!, m[2]!.trim())
+  }
+
+  const resolve = (value: string, depth = 0): string => {
+    if (depth > 8) return value
+    return value.replace(/var\(\s*--([a-z0-9-]+)\s*(?:,\s*([^()]*))?\)/gi, (_, name: string, fallback?: string) => {
+      const hit = vars.get(name)
+      if (hit !== undefined) return resolve(hit, depth + 1)
+      return fallback !== undefined ? resolve(fallback.trim(), depth + 1) : `var(--${name})`
+    })
+  }
+
+  const resolvedTarget = (target as TokenSystem['target']) ?? (/@theme\b/.test(src) ? 'tailwind-theme' : 'css-vars')
+  const themeOnly = resolvedTarget === 'tailwind-theme'
   const tokens: ExistingToken[] = []
   const sections = new Set<string>()
 
-  for (const m of src.matchAll(/--([a-z0-9-]+)\s*:\s*([^;]+);/gi)) {
-    const name = m[1]!.trim()
-    const value = m[2]!.trim()
+  for (const [name, declared] of vars) {
+    if (themeOnly && !isThemeToken(name)) continue
     const kind = kindFromName(name)
+    const value = evaluateCalc(resolve(declared))
     sections.add(name.split('-')[0]!)
-    tokens.push({ name: `--${name}`, kind, value, comparable: isComparable(value, kind), source: label })
+
+    if (kind === 'color') {
+      const hex = parseCssColor(value)
+      tokens.push({ name: `--${name}`, kind, value: hex ?? value, comparable: hex !== null, source: label })
+      continue
+    }
+
+    const token: ExistingToken = { name: `--${name}`, kind, value, comparable: isComparable(value, kind), source: label }
+    // v4 declares a size's line height as a sibling, `--text-xl--line-height`,
+    // usually as a ratio. It belongs on the size, where type resolution reads it.
+    if (kind === 'typography' && name.startsWith('text-')) {
+      const lh = vars.get(`${name}--line-height`)
+      const px = lh !== undefined ? lineHeightPx(resolve(lh), value) : null
+      if (px !== null) token.lineHeight = `${px}px`
+    }
+    tokens.push(token)
   }
 
-  return {
-    target: (target as TokenSystem['target']) ?? (/@theme\b/.test(src) ? 'tailwind-theme' : 'css-vars'),
-    file: label,
-    tokens,
-    sections: [...sections],
-  }
+  return { target: resolvedTarget, file: label, tokens, sections: [...sections] }
+}
+
+/** A Tailwind v4 namespace that becomes a utility, and not a sub-property of one. */
+function isThemeToken(name: string): boolean {
+  return /^(color|text|radius|shadow|spacing)-/.test(name) && !name.includes('--')
+}
+
+/** A length in px: `12px`, `0.75rem`. */
+function pxOf(value: string): number | null {
+  const m = value.trim().match(/^(-?\d*\.?\d+)(px|rem|em)?$/)
+  if (!m) return null
+  const n = parseFloat(m[1]!)
+  return m[2] === 'rem' || m[2] === 'em' ? n * 16 : n
+}
+
+/**
+ * `calc()` over lengths and numbers, when it is simple enough to be sure of.
+ *
+ * shadcn builds every radius from one: `calc(var(--radius) - 4px)`,
+ * `calc(var(--radius) * 1.4)`. Unevaluated, not one of them compared with the
+ * 6px or 14px a design brings. Anything this cannot be certain about is left as
+ * written, and stays incomparable.
+ */
+function evaluateCalc(value: string): string {
+  const m = value.trim().match(/^calc\((.+)\)$/)
+  if (!m) return value
+  const terms = m[1]!.trim().split(/\s+([-+*/])\s+/)
+  if (terms.length !== 3) return value
+  const [a, op, b] = terms as [string, string, string]
+  const x = pxOf(a)
+  if (x === null) return value
+  // A number is not a length. `calc(1.75 / 1.25)` is Tailwind's line-height
+  // ratio, and reading it as px made every v4 size's line height 1.4px.
+  const aIsLength = /(px|rem|em)$/.test(a.trim())
+  const lengthB = pxOf(b)
+  const plain = /^-?\d*\.?\d+$/.test(b.trim()) ? parseFloat(b) : null
+  let out: number | null = null
+  if ((op === '+' || op === '-') && aIsLength && lengthB !== null && plain === null) out = op === '+' ? x + lengthB : x - lengthB
+  if ((op === '*' || op === '/') && plain !== null) out = op === '*' ? x * plain : x / plain
+  if (out === null) return value
+  const n = Math.round(out * 1000) / 1000
+  return aIsLength ? `${n}px` : `${n}`
+}
+
+/** A line height against its size: a ratio (`calc(1.75 / 1.25)`, `1.5`), or a length. */
+function lineHeightPx(lh: string, size: string): number | null {
+  const sizePx = pxOf(size)
+  const ratio = lh.trim().match(/^calc\(\s*(\d*\.?\d+)\s*\/\s*(\d*\.?\d+)\s*\)$/)
+  if (ratio && sizePx !== null) return Math.round((parseFloat(ratio[1]!) / parseFloat(ratio[2]!)) * sizePx * 100) / 100
+  if (/^\d*\.?\d+$/.test(lh.trim()) && sizePx !== null) return Math.round(parseFloat(lh) * sizePx * 100) / 100
+  return pxOf(lh)
 }
 
 function kindFromName(name: string): TokenKind {

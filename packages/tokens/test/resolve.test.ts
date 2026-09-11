@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readTailwindConfig } from '../src/read.js'
-import { resolveTokens, summarize, overBudget, toPx } from '../src/resolve.js'
+import { resolveTokens, summarize, overBudget, toPx, pendingParts } from '../src/resolve.js'
 import { withDefaults, isFrameworkDefault } from '../src/defaults.js'
 import { sameShadow, parseShadow } from '../src/shadow.js'
 import type { ExistingToken } from '../src/read.js'
@@ -210,5 +210,54 @@ describe('shadows compare as painted layers, not as text', () => {
 
   it('inset is part of the identity', () => {
     expect(sameShadow('0 1px 2px 0 #000', 'inset 0 1px 2px 0 #000')).toBe(false)
+  })
+})
+
+describe('what the gate asks names for', () => {
+  const colours: ExistingToken[] = [
+    { name: 'spacing.px', kind: 'border', value: '1px', comparable: true, source: 't' },
+  ]
+  const opts = { colorToleranceDeltaE: 1, spacingTolerancePx: 2 }
+
+  // The gate asked for a name for the whole border and wrote it as one token,
+  // when the width was already in the system and only the colour was missing.
+  it('asks for the missing part of a composite, not for the composite', () => {
+    const rs = resolveTokens([raw('border', '1px solid #9aa3ad')], colours, opts)
+    expect(rs[0]!.bucket).toBe('new')
+    const parts = pendingParts(rs)
+    expect(parts.map((p) => [p.raw.kind, p.raw.value])).toEqual([['color', '#9aa3ad']])
+  })
+
+  it('asks once for a value that several composites and plain values share', () => {
+    const rs = resolveTokens([
+      raw('border', '1px solid #9aa3ad'),
+      raw('color', '#9aa3ad'),
+    ], colours, opts)
+    expect(pendingParts(rs)).toHaveLength(1)
+  })
+
+  it('leaves out anything that resolved', () => {
+    expect(pendingParts(resolveTokens([raw('border', '1px solid #9aa3ad')], [
+      ...colours, { name: 'colors.slate', kind: 'color', value: '#9aa3ad', comparable: true, source: 't' },
+    ], opts))).toHaveLength(0)
+  })
+})
+
+describe('a colour used with alpha is the same colour', () => {
+  const opts = { colorToleranceDeltaE: 1, spacingTolerancePx: 2 }
+  // Tailwind writes a faint colour as bg-ink/10, not as a token of its own.
+  it('asks once for a colour and its faint uses, by the opaque value', () => {
+    const parts = pendingParts(resolveTokens([raw('color', '#181a19'), raw('color', '#181a191a')], [], opts))
+    expect(parts.map((p) => p.raw.value)).toEqual(['#181a19'])
+  })
+
+  it('asks for the opaque colour even when only the faint one appears', () => {
+    const parts = pendingParts(resolveTokens([raw('color', '#2426251a')], [], opts))
+    expect(parts.map((p) => p.raw.value)).toEqual(['#242625'])
+    expect(parts[0]!.note).toMatch(/alpha/)
+  })
+
+  it('leaves an opaque 8-digit hex alone', () => {
+    expect(pendingParts(resolveTokens([raw('color', '#181a19ff')], [], opts)).map((p) => p.raw.value)).toEqual(['#181a19ff'])
   })
 })

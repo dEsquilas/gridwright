@@ -488,11 +488,12 @@ for the page.
 
 Written down rather than left to be discovered.
 
-- **Tailwind v4 colours never match.** A project whose tokens live in CSS —
-  shadcn's `--color-primary: var(--primary)` over `--primary: oklch(…)` — is
-  read, but the `var()` is not followed and `oklch()` is not compared, and the
-  framework's default palette is missing for v4. So every colour a design brings
-  is proposed as new. Spacing and type resolve; colour does not.
+- **CSS tokens are read, not fully evaluated.** Tailwind v4 and shadcn
+  stylesheets resolve — `var()` is followed, `oklch()` becomes hex, the
+  installed `theme.css` is the framework's scale, and two-term `calc()` is
+  worked out. Anything more elaborate — nested `calc()`, `color-mix()`,
+  `light-dark()` — is kept as written and counts as incomparable, so a token
+  built that way is never offered as a match.
 - **A whole view has been built and handed out, not yet composed end to end.**
   On a real ten-section page, the sections were classified, deduplicated, given
   their own runs and made to wait for the view; no page has yet gone all the

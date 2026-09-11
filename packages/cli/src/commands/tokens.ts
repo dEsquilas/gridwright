@@ -16,7 +16,7 @@ import {
   type RawToken, type RunState, type GridwrightConfig,
 } from '@gridwright/core'
 import {
-  readTokenSystem, resolveTokens, summarize, overBudget, previewTokens, writeTokens,
+  readTokenSystem, resolveTokens, summarize, overBudget, previewTokens, writeTokens, pendingParts,
   isFrameworkDefault, ComputedTokenCollision, type Resolution, type TokenWrite,
 } from '@gridwright/tokens'
 import { ok, fail, info, warn, step, dim, bold, green, yellow, table } from '../ui.js'
@@ -112,7 +112,9 @@ export function runTokens(root: string, args: TokensArgs): void {
   if (!existsSync(path)) fail(`Run ${run.id} has not been resolved.`, 'Run `gw resolve` first.')
   const resolutions = JSON.parse(readFileSync(path, 'utf8')) as Resolution[]
 
-  const pending = resolutions.filter((r) => r.bucket === 'new')
+  // Single values, never composites: a border whose width the system has asks
+  // for a name for its colour, not for `1px solid #9aa3ad` as one token.
+  const pending = pendingParts(resolutions)
   const system = readTokenSystem(root, config.tokens.target, config.tokens.file)
 
   if (pending.length === 0) {
