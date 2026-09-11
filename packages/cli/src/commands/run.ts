@@ -534,12 +534,29 @@ export function status(root: string, opts: { json?: boolean } = {}): void {
   if (opts.json) { console.log(JSON.stringify(runs, null, 2)); return }
   if (runs.length === 0) { info('No runs yet.'); return }
 
+  // A view's sections are listed under it. Listed beside it, nine runs read as
+  // nine unrelated components, with nothing to say which page they were for.
+  const children = new Map<string, RunState[]>()
+  for (const r of runs) if (r.parent) children.set(r.parent, [...(children.get(r.parent) ?? []), r])
+  const ids = new Set(runs.map((r) => r.id))
+
   for (const r of runs) {
+    if (r.parent && ids.has(r.parent)) continue
     const done = Object.values(r.stages).filter((s) => s.status === 'done').length
     console.log(`${bold(r.id)} ${dim(`${r.name} · ${r.mode}`)}`)
     console.log(`  ${green(String(done))} stages closed · current: ${yellow(r.stage)} ${dim(STAGE_SPECS[r.stage].summary)}`)
     const failed = Object.entries(r.stages).filter(([, s]) => s.status === 'failed')
     for (const [name, s] of failed) console.log(`  ${dim(`✗ ${name}: ${s.reason ?? ''}`)}`)
+
+    const sections = children.get(r.id) ?? []
+    if (sections.length > 0) {
+      const finished = sections.filter(sectionFinished).length
+      console.log(`  ${dim(`sections · ${finished} of ${sections.length} finished`)}`)
+      for (const c of sections.sort((a, b) => a.name.localeCompare(b.name))) {
+        const mark = sectionFinished(c) ? green('✓') : c.stages.distill.status === 'failed' ? yellow('!') : dim('·')
+        console.log(`    ${mark} ${c.name.padEnd(24)} ${dim(c.id.padEnd(28))} ${yellow(c.stage)}`)
+      }
+    }
   }
 }
 

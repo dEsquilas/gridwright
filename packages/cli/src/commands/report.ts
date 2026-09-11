@@ -20,10 +20,10 @@ import { Script } from 'node:vm'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  activeRun, advance, listRuns, loadConfig, loadState, paths, saveState,
+  activeRun, advance, listRuns, loadConfig, loadState, paths, saveState, sectionFinished,
   type IR, type Measurements, type RunScore, type RunState, type GridwrightConfig,
 } from '@gridwright/core'
-import { readRegistry, readViews, type RegistryEntry } from '@gridwright/library'
+import { readRegistry, readViews, inferKind, type RegistryEntry, type ViewsManifest } from '@gridwright/library'
 import type { Resolution } from '@gridwright/tokens'
 import { ok, fail, dim } from '../ui.js'
 
@@ -49,6 +49,12 @@ interface ViewportView {
 interface Entry {
   name: string
   mode: 'component' | 'view'
+  /** module, layout, primitive, overlay — or view. What the rail groups by. */
+  kind: string
+  /** For a view: its sections, and where each one stands. */
+  sections: Array<{ name: string; kind: string; state: string; ok: boolean; target: number | null }>
+  /** For a section: the views it is used in. */
+  usedIn: string[]
   /** Built but never registered — visible, and marked, so a run that stopped
    *  short is not invisible in the very page meant to show what exists. */
   registered: boolean
@@ -132,6 +138,7 @@ export function runReport(root: string, args: ReportArgs): void {
  */
 function library(root: string, config: GridwrightConfig, runs: RunState[]): Entry[] {
   const registry = readRegistry(root, config)
+  const manifest = readViews(root)
   const latestRun = new Map<string, RunState>()
   for (const run of runs) {
     const name = componentName(run)
@@ -148,15 +155,25 @@ function library(root: string, config: GridwrightConfig, runs: RunState[]): Entr
   }
   // Views are recorded apart from the library, because nothing reuses a view.
   // They are still built, still frozen, and still worth looking at.
-  for (const [name, view] of Object.entries(readViews(root))) {
+  for (const [name, view] of Object.entries(manifest)) {
     if (seen.has(name)) continue
     seen.add(name)
     entries.push(entryFor(root, name, {
-      path: view.path, mode: 'view', figma: view.figma, props: [], tokens: view.sections,
+      path: view.path, mode: 'view', figma: view.figma, props: [], tokens: [],
       ...(view.score !== undefined ? { score: view.score } : {}),
       ...(view.viewports ? { viewports: view.viewports } : {}),
       runs: view.runs, updatedAt: view.updatedAt,
     }, latestRun.get(name) ?? null, true))
+  }
+  // Views still being built. The page is what a person looks for first, and
+  // "nothing to show yet" about a view with nine sections in flight was true
+  // and useless: it said nothing about which ones were done.
+  for (const run of runs) {
+    if (run.mode !== 'view' || !run.sections) continue
+    const name = componentName(run)
+    if (seen.has(name)) continue
+    seen.add(name)
+    entries.push(entryFor(root, name, null, run, false))
   }
   for (const [name, run] of latestRun) {
     if (seen.has(name)) continue
@@ -165,9 +182,76 @@ function library(root: string, config: GridwrightConfig, runs: RunState[]): Entr
   }
 
   // Registered first, then by name: a library is browsed alphabetically.
-  return entries
+  const shown = entries
     .sort((a, b) => Number(b.registered) - Number(a.registered) || a.name.localeCompare(b.name))
     .slice(0, MAX_ENTRIES)
+
+  // A view lists its sections and a section lists the views it is in, each a
+  // link to the other. Computed once everything is in place, because the links
+  // are positions in this list.
+  const index = new Map(shown.map((e, i) => [e.name, i]))
+  for (const e of shown) {
+    if (e.mode !== 'view') continue
+    e.sections = sectionsOf(root, e, runs, manifest, index, shown)
+    for (const sec of e.sections) if (sec.target !== null) shown[sec.target]!.usedIn.push(e.name)
+  }
+  return shown
+}
+
+/** Where a section was filed, as its view decided when it built it. */
+function sectionKind(root: string, run: RunState | null): string | undefined {
+  if (!run?.parent) return undefined
+  return loadState(root, run.parent)?.sections?.find((s) => s.run === run.id)?.kind
+}
+
+/** A view's sections and where each one stands, from its run while it is
+ *  being built and from the views manifest once it has been recorded. */
+function sectionsOf(
+  root: string,
+  e: Entry,
+  runs: RunState[],
+  manifest: ViewsManifest,
+  index: Map<string, number>,
+  shown: Entry[],
+): Entry['sections'] {
+  const run = e.runId ? runs.find((r) => r.id === e.runId) ?? null : null
+  if (run?.sections) {
+    // "In place" means there is nothing left to do for it. A part of the page is
+    // built when the page is, and a repeated section when the one it repeats
+    // is — counting either as done on the day the view was opened reported
+    // one of ten sections in place with nothing built at all.
+    const composed = run.stages.author.status === 'done'
+    const registered = (nodeId: string): boolean => {
+      const first = run.sections!.find((r) => r.nodeId === nodeId)
+      const child = first?.run ? loadState(root, first.run) : null
+      return child?.stages['library:register'].status === 'done'
+    }
+    return run.sections.map((ref) => {
+      if (!ref.reusable) {
+        return { name: ref.layerName, kind: '—', state: composed ? 'part of the view · built with it' : 'part of the view · built when it is composed', ok: composed, target: null }
+      }
+      const kind = ref.kind ?? 'module'
+      if (ref.reuses) {
+        return { name: ref.reuses, kind, state: 'reused from the library', ok: true, target: index.get(ref.reuses) ?? null }
+      }
+      if (ref.sameAs) {
+        const done = registered(ref.sameAs)
+        return { name: ref.name, kind, state: 'same component as another section', ok: done, target: index.get(ref.name) ?? null }
+      }
+      const child = ref.run ? loadState(root, ref.run) : null
+      if (!child) return { name: ref.name, kind, state: 'no run', ok: false, target: null }
+      const name = componentName(child)
+      const target = index.get(name) ?? null
+      if (child.stages['library:register'].status === 'done') return { name, kind, state: 'in the library', ok: true, target }
+      if (sectionFinished(child)) return { name, kind, state: 'built · waiting for the view to register it', ok: false, target }
+      if (child.stages.distill.status === 'failed') return { name, kind, state: 'distill failed', ok: false, target }
+      return { name, kind, state: `building · ${child.stage}`, ok: false, target }
+    })
+  }
+  return (manifest[e.name]?.sections ?? []).map((n) => {
+    const target = index.get(n) ?? null
+    return { name: n, kind: target !== null ? shown[target]!.kind : '', state: 'in the library', ok: true, target }
+  })
 }
 
 function entryFor(
@@ -206,9 +290,13 @@ function entryFor(
 
   const atDesign = score?.viewports.find((v) => v.viewport === 'design')
 
+  const mode = reg?.mode ?? run?.mode ?? 'component'
   return {
     name,
-    mode: reg?.mode ?? run?.mode ?? 'component',
+    mode,
+    kind: mode === 'view' ? 'view' : (reg?.kind ?? sectionKind(root, run) ?? inferKind(name)),
+    sections: [],
+    usedIn: [],
     registered,
     path: reg?.path ?? (typeof run?.stages.author.output?.file === 'string' ? run.stages.author.output.file : ''),
     node: reg?.figma.node ?? run?.source.nodeId ?? '',
@@ -237,8 +325,12 @@ function entryFor(
 }
 
 function page(config: GridwrightConfig, entries: Entry[], selected: number): string {
-  const modules = entries.filter((e) => e.mode !== 'view')
-  const views = entries.filter((e) => e.mode === 'view')
+  // Grouped by what each thing is: a header is not a page module, and the
+  // views come first because they are what the rest is for.
+  const GROUPS: Array<[string, string]> = [
+    ['Views', 'view'], ['Modules', 'module'], ['Layout', 'layout'], ['Overlays', 'overlay'], ['Primitives', 'primitive'],
+  ]
+  const known = new Set(GROUPS.map(([, k]) => k))
 
   const button = (e: Entry) => {
     const i = entries.indexOf(e)
@@ -341,6 +433,9 @@ function page(config: GridwrightConfig, entries: Entry[], selected: number): str
            font-weight:600; background:#eef3fd; color:var(--accent); vertical-align:2px; }
   .badge.view { background:#f3eefd; color:#7c3aed; }
   .badge.unreg { background:#fdf4e7; color:var(--warn); }
+  #detail a[data-go] { color:var(--accent); text-decoration:none; }
+  #detail a[data-go]:hover { text-decoration:underline; }
+  .state-ok { color:var(--ok); }
   @media (max-width: 900px) { .shell { grid-template-columns:1fr; } .rail { position:static; max-height:none; } }
 </style></head><body><main>
 
@@ -349,8 +444,8 @@ function page(config: GridwrightConfig, entries: Entry[], selected: number): str
     <h2>Library</h2>
     <input id="filter" type="search" placeholder="Filter…" autocomplete="off">
     <div id="list">
-      ${group('Modules', modules)}
-      ${group('Views', views)}
+      ${GROUPS.map(([label, kind]) => group(label, entries.filter((e) => e.kind === kind))).join('')}
+      ${group('Other', entries.filter((e) => !known.has(e.kind)))}
       <div class="none" id="noMatch" hidden>Nothing matches.</div>
     </div>
   </aside>
@@ -383,10 +478,9 @@ function esc(s) {
 
 function renderDetail() {
   const e = entry();
-  const badge = e.mode === 'view'
-    ? '<span class="badge view">view</span>'
-    : '<span class="badge">module</span>';
-  const unreg = e.registered ? '' : ' <span class="badge unreg">not registered</span>';
+  const badge = '<span class="badge' + (e.kind === 'view' ? ' view' : '') + '">' + esc(e.kind) + '</span>';
+  const unreg = e.registered ? ''
+    : ' <span class="badge unreg">' + (e.kind === 'view' ? 'in progress' : 'not registered') + '</span>';
 
   const meta = [
     e.path ? '<span><code>' + esc(e.path) + '</code></span>' : '',
@@ -394,11 +488,13 @@ function renderDetail() {
     e.designWidth ? '<span>design ' + Math.round(e.designWidth) + 'px wide</span>' : '',
     e.runs ? '<span>' + e.runs + ' run' + (e.runs === 1 ? '' : 's') + '</span>' : '',
     e.updatedAt ? '<span>' + esc(e.updatedAt.slice(0, 10)) + '</span>' : '',
+    e.usedIn.length ? '<span>used in ' + e.usedIn.map(esc).join(', ') + '</span>' : '',
   ].filter(Boolean).join('');
 
   document.getElementById('detail').innerHTML =
     '<h1>' + esc(e.name) + ' ' + badge + unreg + '</h1>' +
     '<div class="meta">' + meta + '</div>' +
+    sectionsSection(e) +
     viewerShell(e) +
     surfaceSection(e) +
     tokensSection(e) +
@@ -494,6 +590,17 @@ function verdict(v) {
     '<span class="muted">the numbers are evidence, not a verdict \u2014 what you see decides</span></div>';
 }
 
+function sectionsSection(e) {
+  if (!e.sections.length) return '';
+  const done = e.sections.filter(x => x.ok).length;
+  const rows = e.sections.map(x =>
+    '<tr><td>' + (x.target !== null ? '<a href="#" data-go="' + x.target + '">' + esc(x.name) + '</a>' : esc(x.name)) + '</td>' +
+    '<td class="muted">' + esc(x.kind) + '</td>' +
+    '<td class="' + (x.ok ? 'state-ok' : 'muted') + '">' + esc(x.state) + '</td></tr>').join('');
+  return '<h2>Sections \u00b7 ' + done + ' of ' + e.sections.length + ' in place</h2>' +
+    '<table><tr><th>section</th><th>kind</th><th>state</th></tr>' + rows + '</table>';
+}
+
 function surfaceSection(e) {
   if (e.props.length === 0 && e.tokens.length === 0) return '';
   const chips = list => '<div class="chips">' + list.map(x => '<code>' + esc(x) + '</code>').join('') + '</div>';
@@ -560,6 +667,15 @@ document.getElementById('list').addEventListener('click', e => {
   pickViewport();
   renderDetail();
   window.scrollTo({ top: 0 });
+});
+
+// A section's name in a view's table opens that section.
+document.getElementById('detail').addEventListener('click', ev => {
+  const a = ev.target.closest('a[data-go]');
+  if (!a) return;
+  ev.preventDefault();
+  const b = document.querySelector('#list button[data-i="' + a.dataset.go + '"]');
+  if (b) b.click();
 });
 
 document.getElementById('filter').addEventListener('input', e => {

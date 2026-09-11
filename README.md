@@ -262,6 +262,22 @@ before that.
 recorded in `.gridwright/views.json` rather than the registry, and the
 dashboard lists it under *Views* with its own goldens.
 
+To see where a view stands, `gw report --open`. The view is there from the
+moment it is built — before anything is composed — with a table of its sections
+and what each one is doing: building, and at which stage; in the library;
+reused; or part of the page. Each name opens that section, and each section
+says which views use it. The rail groups everything by what it is: views,
+modules, layout parts. `gw status` lists the sections under their view too.
+
+```
+home-01 Home · view
+  3 stages closed · current: tokens
+  sections · 0 of 9 finished
+    · Hero                     hero-01                      plan
+    · NavFooter                nav-footer-01                plan
+    …
+```
+
 ---
 
 ## The IR
