@@ -107,6 +107,40 @@ describe('learning how a project writes components', () => {
     expect(pathFor(shape, 'ProofCards')).toBe('src/modules/ProofCards/ProofCards.tsx')
   })
 
+  // The same convention in the spelling Vue and Nuxt use. Only PascalCase
+  // folders counted, so a `src/modules` of `hero-banner/hero-banner.vue` was
+  // still invisible after the folder-per-module fix.
+  it('reads a folder-per-module directory spelled in kebab-case', () => {
+    for (const n of ['hero-banner', 'pricing-table']) {
+      file(`src/modules/${n}/${n}.vue`, '<template><div /></template>\n')
+    }
+
+    const shape = detectConventions(root).shapes.find((s) => s.dir === 'src/modules')!
+    expect(shape).toMatchObject({ file: '{Name}/{Name}.vue', seenIn: 2 })
+  })
+
+  // A folder called `utils` with an `index.ts` in it is not a component, and
+  // the kebab spelling is what lets that in.
+  it('does not take a helper folder for a component', () => {
+    file('src/modules/utils/index.ts', 'export const cn = () => null\n')
+    file('src/modules/Intro/Intro.tsx', 'export default function Intro() { return null }\n')
+
+    const shape = detectConventions(root).shapes.find((s) => s.dir === 'src/modules')!
+    expect(shape.seenIn).toBe(1)
+  })
+
+  // `init` lets the person pick a runner-up or type a path. The shapes used to
+  // be read from what detection guessed, so the config carried a shape for the
+  // directory that was turned down and none for the one being written to.
+  it('reads the shapes of the directories it is given, not the ones it guessed', () => {
+    file('templates/layouts/Base/Base.tsx', 'export default function Base() { return null }\n')
+    file('templates/partials/Header/index.tsx', 'export function Component() { return null }\n')
+
+    const chosen = detectConventions(root, [{ kind: 'layout', dir: 'templates/partials', from: 'asked' }])
+    const shape = chosen.shapes.find((s) => s.dir === 'templates/partials')!
+    expect(shape).toMatchObject({ file: '{Name}/index.tsx', export: 'named:Component' })
+  })
+
   it('resolves where a named component goes', () => {
     for (const n of ['A', 'B']) asModule(n)
     const c = detectConventions(root)

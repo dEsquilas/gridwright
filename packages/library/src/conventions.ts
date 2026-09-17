@@ -19,6 +19,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { detectPlacements, type Placement } from './placement.js'
+import { folderComponent } from './files.js'
 
 export interface ComponentShape {
   /** Where this kind of component lives, relative to the project root. */
@@ -80,9 +81,20 @@ const DOC_CANDIDATES = [
   'docs/patterns', '.cursorrules',
 ]
 
-export function detectConventions(root: string): Conventions {
+/**
+ * How this project writes components, and where it puts them.
+ *
+ * `placements` is taken rather than detected when the person has already been
+ * asked. `init` lets them pick a runner-up or type a path, and the shapes used
+ * to be read from what detection guessed instead: choosing `templates/partials`
+ * over `templates/layouts` left the config with a shape for the directory that
+ * was turned down, and none for the one being written to — so `verify` found no
+ * match, omitted the export shape, and the harness mounted `default` in a
+ * project whose components export a name.
+ */
+export function detectConventions(root: string, settled?: Placement[]): Conventions {
   const shapes: ComponentShape[] = []
-  const placements = detectPlacements(root)
+  const placements = settled ?? detectPlacements(root)
 
   // The fixed list alone missed a Vite project that keeps its modules in
   // `src/modules`: placement detection found the directory, and the shape of
@@ -90,7 +102,7 @@ export function detectConventions(root: string): Conventions {
   // Views stay out: a `pages` directory is usually the fullest one in the
   // project, and the most populated shape is the fallback for everything else.
   const dirs = new Set(CANDIDATE_DIRS)
-  for (const p of placements) if (p.from === 'found' && p.kind !== 'view') dirs.add(p.dir)
+  for (const p of placements) if (p.from !== 'absent' && p.kind !== 'view') dirs.add(p.dir)
 
   for (const dir of dirs) {
     const abs = join(root, dir)
@@ -182,7 +194,11 @@ function inferShape(root: string, dir: string): ComponentShape | null {
     layouts.set(...bump(layouts, layoutOf(abs, file)))
 
     const named = source.match(/^export\s+(?:async\s+)?function\s+(\w+)/m)
-    const isDefault = /^export\s+default\s/m.test(source)
+    // A single-file component is a default export by construction: `<script
+    // setup>` writes no export line at all, so a directory of `.vue` files
+    // came back `unknown` and taught nothing — the whole directory had no
+    // shape, which is the same hole as a directory that was never read.
+    const isDefault = /^export\s+default\s/m.test(source) || /\.(vue|svelte)$/.test(file)
     exports.set(...bump(exports, isDefault ? 'default' : named ? `named:${named[1]}` : 'unknown'))
 
     // Anything else the file exports at the top level. A shape is not only its
@@ -227,9 +243,9 @@ function layoutOf(dir: string, file: string): string {
   return basename(file) === `index${ext}` ? `{Name}/index${ext}` : `{Name}/{Name}${ext}`
 }
 
-/** One level deep plus `<Name>/index.*` or `<Name>/<Name>.*`. Components nested
- *  deeper than that are someone's private helpers, not the shape of the
- *  directory. */
+/** One level deep plus the folder-per-component spellings from `files.ts`.
+ *  Components nested deeper than that are someone's private helpers, not the
+ *  shape of the directory. */
 function componentFiles(dir: string): string[] {
   const out: string[] = []
   let entries: string[]
@@ -251,26 +267,24 @@ function componentFiles(dir: string): string[] {
 
     if (stat.isFile() && isComponentFile(entry)) {
       out.push(full)
-    } else if (stat.isDirectory() && /^[A-Z]/.test(entry)) {
-      for (const inner of [
-        'index.tsx', 'index.jsx', 'index.vue', 'index.ts',
-        `${entry}.tsx`, `${entry}.jsx`, `${entry}.vue`,
-      ]) {
-        if (existsSync(join(full, inner))) {
-          out.push(join(full, inner))
-          break
-        }
-      }
+    } else if (stat.isDirectory()) {
+      const inner = folderComponent(dir, entry)
+      if (inner) out.push(inner)
     }
   }
   return out
 }
 
 function isComponentFile(name: string): boolean {
-  if (!/\.(tsx|jsx|vue)$/.test(name)) return false
-  const base = basename(name, extname(name))
+  const ext = extname(name)
+  if (!/\.(tsx|jsx|vue|svelte)$/.test(name)) return false
+  const base = basename(name, ext)
   // Barrels and helpers are not components and would skew every count.
-  return /^[A-Z]/.test(base) && !/^(index|types|utils|helpers|constants)$/i.test(base)
+  if (/^(index|types|utils|helpers|constants)$/i.test(base)) return false
+  // PascalCase, or kebab-case for a single-file component: `hero-banner.vue`
+  // is how Vue and Nuxt spell it. A lowercase `.tsx` is a helper or a demo,
+  // never a component, so that one stays PascalCase-only.
+  return /^[A-Z]/.test(base) || (/^\.(vue|svelte)$/.test(ext) && /^[a-z][a-z0-9-]*$/.test(base))
 }
 
 /**

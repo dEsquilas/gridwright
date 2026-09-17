@@ -26,6 +26,15 @@ describe('finding the directories a project already has', () => {
   // `src/modules/Intro/Intro.tsx`: a folder per module, the file named after
   // it. Only `<Name>/index.*` counted, so the directory looked empty and a
   // second modules directory was proposed beside the real one.
+  it('counts a kebab-case folder whose component is named after it', () => {
+    const root = fresh()
+    mkdirSync(join(root, 'src/modules/hero-banner'), { recursive: true })
+    writeFileSync(join(root, 'src/modules/hero-banner/hero-banner.vue'), '<template><div /></template>')
+
+    const module = detectPlacements(root).find((p) => p.kind === 'module')!
+    expect(module).toMatchObject({ dir: 'src/modules', from: 'found' })
+  })
+
   it('counts a folder whose component is named after it', () => {
     const root = fresh()
     mkdirSync(join(root, 'src/modules/Intro'), { recursive: true })
