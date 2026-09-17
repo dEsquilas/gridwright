@@ -232,7 +232,9 @@ export function findProjectCss(projectRoot: string): string[] {
     'styles/global.css', 'styles/theme.css',
     // src/index.css is where Vite's React template puts it, and where shadcn's
     // init writes its theme.
-    'src/style.css', 'src/styles.css', 'src/app.css', 'src/index.css',
+    // src/main.css is the other common spelling: the stylesheet named after
+    // the `main.tsx` that imports it.
+    'src/style.css', 'src/styles.css', 'src/app.css', 'src/index.css', 'src/main.css',
     'src/assets/css/app.css', 'resources/css/app.css',
     'app/globals.css', 'styles/globals.css', 'dist/output.css',
   ]
@@ -253,6 +255,35 @@ export function findProjectCss(projectRoot: string): string[] {
 
   const preferred = canCompile ? found.find((f) => f.source) : undefined
   return [(preferred ?? found[0]!).path]
+}
+
+/**
+ * The stylesheets to render with: the ones the project names, or the search.
+ *
+ * The search is a fixed list of names, and a project is free to call its
+ * stylesheet anything. One that called it `src/main.css` rendered every
+ * component as unstyled text — nothing failed, the score was simply wrong — and
+ * the only way out was to add a file under a name the list knew. `verify.css`
+ * in the config is that way out, and it is data (Law 9).
+ *
+ * A configured path that does not exist comes back in `missing` rather than
+ * being skipped: falling through to the search would hide a typo behind a
+ * plausible render.
+ */
+export function resolveProjectCss(
+  projectRoot: string,
+  configured?: string[],
+): { css: string[]; missing: string[] } {
+  if (!configured || configured.length === 0) return { css: findProjectCss(projectRoot), missing: [] }
+
+  const css: string[] = []
+  const missing: string[] = []
+  for (const rel of configured) {
+    const abs = isAbsolute(rel) ? rel : join(projectRoot, rel)
+    if (existsSync(abs)) css.push(abs)
+    else missing.push(rel)
+  }
+  return { css, missing }
 }
 
 /** A stylesheet that still has to be built: it declares Tailwind rather than

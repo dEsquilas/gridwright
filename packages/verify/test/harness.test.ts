@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  findProjectCss, projectDependsOn, resolveProjectModule, tailwindSourceStylesheet, viteConfig,
+  findProjectCss, resolveProjectCss, projectDependsOn, resolveProjectModule, tailwindSourceStylesheet, viteConfig,
 } from '../src/harness.js'
 
 let root: string
@@ -81,6 +81,30 @@ describe('rendering a Vite 8 + Tailwind v4 project', () => {
     file('src/index.css', '@import "tailwindcss";\n')
     file('dist/output.css', '.p-4{padding:1rem}\n')
     expect(findProjectCss(root)).toEqual([join(root, 'src/index.css')])
+  })
+
+  // A Vite + Tailwind 3 project whose stylesheet is `src/main.css`. No name on
+  // the list matched, so the harness loaded nothing and a correct component
+  // rendered as unstyled text.
+  it('finds src/main.css', () => {
+    packageJson({})
+    file('postcss.config.js', 'export default {}\n')
+    file('src/main.css', '@tailwind base;\n')
+    expect(findProjectCss(root)).toEqual([join(root, 'src/main.css')])
+  })
+
+  it('takes the stylesheets the config names over the search', () => {
+    file('src/index.css', '@tailwind base;\n')
+    file('src/theme/site.css', '@tailwind base;\n')
+    expect(resolveProjectCss(root, ['src/theme/site.css']))
+      .toEqual({ css: [join(root, 'src/theme/site.css')], missing: [] })
+    expect(resolveProjectCss(root)).toEqual({ css: [join(root, 'src/index.css')], missing: [] })
+  })
+
+  // Falling back to the search would hide the typo behind a plausible render.
+  it('reports a configured stylesheet that is not there instead of searching', () => {
+    file('src/index.css', '@tailwind base;\n')
+    expect(resolveProjectCss(root, ['src/mian.css'])).toEqual({ css: [], missing: ['src/mian.css'] })
   })
 
   it('still prefers a build output when nothing can compile the source', () => {
