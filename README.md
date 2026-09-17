@@ -5,7 +5,7 @@ component comes out, registered in the project's design system. Point it at a
 whole page and it builds the page, section by section. Driven from Claude Code.
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-16a34a)](LICENSE)
-![tests: 255](https://img.shields.io/badge/tests-255%20passing-16a34a)
+![tests: 262](https://img.shields.io/badge/tests-262%20passing-16a34a)
 
 > **The design comes in as a node and leaves as a system.**
 >
@@ -481,6 +481,13 @@ score:
 
 ![Two terminal windows. `gw verify` scores four viewports and marks `design` — the width the frame was actually drawn at — as the only one with a reference; its findings name the node by its `data-gw` label. `gw golden` freezes five images into one folder for the component.](docs/verify.svg)
 
+**It renders with the project's own stylesheet**, found under the usual names
+and preferring the source over a build output — a compiled bundle only holds
+the classes that existed when it was built, so a component written since
+renders unstyled and scores like a bad component. A project that calls its
+stylesheet something else names it in the config: `"verify": { "css":
+["src/main.css"] }`.
+
 **Nodes are matched by their `data-gw`, not by position.** Matching on tree
 position cannot work — a component does not reproduce Figma's tree, and a Figma
 button carries six levels of instance wrappers no sane developer writes. So a
@@ -645,7 +652,7 @@ fails your build has done something worse than nothing.
 
 ```bash
 pnpm install
-pnpm test        # 255 tests
+pnpm test        # 262 tests
 pnpm typecheck
 pnpm build
 ```
