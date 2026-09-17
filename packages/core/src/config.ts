@@ -189,5 +189,15 @@ export function validateConfig(c: GridwrightConfig): string[] {
   if (c.verify.maxRefineIterations < 1) {
     errors.push('verify.maxRefineIterations has to be at least 1')
   }
+  // Hand-edited, because the message that mentions it invites exactly that. A
+  // string instead of an array iterates per character, and the run aborted
+  // with "verify.css names a stylesheet that does not exist: s, r, c, /, m…".
+  if (c.verify.css !== undefined) {
+    if (!Array.isArray(c.verify.css)) {
+      errors.push('verify.css has to be a list of paths: "css": ["src/main.css"]')
+    } else if (c.verify.css.some((p) => typeof p !== 'string' || p.trim() === '')) {
+      errors.push('verify.css has an entry that is not a path')
+    }
+  }
   return errors
 }
