@@ -174,7 +174,7 @@ function walk(root: string, rel: string, depth: number, max: number): string[] {
 }
 
 /**
- * Source files, one level deep plus `<Name>/index.*`.
+ * Source files, one level deep plus `<Name>/index.*` and `<Name>/<Name>.*`.
  *
  * Deliberately not "component-looking". The first cut required PascalCase and
  * a React extension, and missed a project whose `templates/pages`,
@@ -201,8 +201,12 @@ function countFiles(root: string, dir: string): number {
       if (stat.isFile()) {
         if (SOURCE_FILE.test(entry)) n++
       } else if (stat.isDirectory() && /^[A-Z]/.test(entry)) {
-        if (['index.tsx', 'index.jsx', 'index.vue', 'index.svelte', 'index.ts'].some(
-          (f) => existsSync(join(abs, f)))) n++
+        // `<Name>/<Name>.*` as well as `<Name>/index.*`. With only the second,
+        // a `src/modules` full of `Intro/Intro.tsx` counted as empty, and the
+        // module placement was proposed somewhere else as though it were new.
+        const inner = ['index.tsx', 'index.jsx', 'index.vue', 'index.svelte', 'index.ts',
+          ...['tsx', 'jsx', 'vue', 'svelte'].map((ext) => `${entry}.${ext}`)]
+        if (inner.some((f) => existsSync(join(abs, f)))) n++
       }
     } catch {
       continue

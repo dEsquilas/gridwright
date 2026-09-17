@@ -91,6 +91,22 @@ describe('learning how a project writes components', () => {
     expect(detectConventions(join(root, 'repo')).docs.some((d) => d.includes('outside'))).toBe(false)
   })
 
+  // Found on a Vite + React project that keeps a folder per module with the
+  // component named after it, next to its demo: `src/modules/Intro/Intro.tsx`.
+  // `init` wrote no shapes at all, so `author` had no example and `verify` had
+  // no export shape to mount with.
+  it('reads the shape of a folder-per-module directory it only knows as a placement', () => {
+    for (const n of ['Intro', 'Hero']) {
+      file(`src/modules/${n}/${n}.tsx`, `export default function ${n}() { return null }\n`)
+      file(`src/modules/${n}/demo.tsx`, `export default {}\n`)
+    }
+
+    const c = detectConventions(root)
+    const shape = c.shapes.find((s) => s.dir === 'src/modules')!
+    expect(shape).toMatchObject({ file: '{Name}/{Name}.tsx', export: 'default', seenIn: 2 })
+    expect(pathFor(shape, 'ProofCards')).toBe('src/modules/ProofCards/ProofCards.tsx')
+  })
+
   it('resolves where a named component goes', () => {
     for (const n of ['A', 'B']) asModule(n)
     const c = detectConventions(root)

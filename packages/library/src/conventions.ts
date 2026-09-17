@@ -82,8 +82,17 @@ const DOC_CANDIDATES = [
 
 export function detectConventions(root: string): Conventions {
   const shapes: ComponentShape[] = []
+  const placements = detectPlacements(root)
 
-  for (const dir of CANDIDATE_DIRS) {
+  // The fixed list alone missed a Vite project that keeps its modules in
+  // `src/modules`: placement detection found the directory, and the shape of
+  // the files in it was never read, so `author` was handed no example at all.
+  // Views stay out: a `pages` directory is usually the fullest one in the
+  // project, and the most populated shape is the fallback for everything else.
+  const dirs = new Set(CANDIDATE_DIRS)
+  for (const p of placements) if (p.from === 'found' && p.kind !== 'view') dirs.add(p.dir)
+
+  for (const dir of dirs) {
     const abs = join(root, dir)
     if (!existsSync(abs)) continue
     const shape = inferShape(root, dir)
@@ -96,7 +105,7 @@ export function detectConventions(root: string): Conventions {
     shapes: sorted,
     breakpoints: findBreakpoints(root),
     importExtension: detectImportExtension(root, sorted),
-    placements: detectPlacements(root),
+    placements,
     docs: findDocs(root),
   }
 }
@@ -170,9 +179,7 @@ function inferShape(root: string, dir: string): ComponentShape | null {
     const source = safeRead(file)
     if (!source) continue
 
-    layouts.set(...bump(layouts, basename(file) === `index${extname(file)}`
-      ? `{Name}/index${extname(file)}`
-      : `{Name}${extname(file)}`))
+    layouts.set(...bump(layouts, layoutOf(abs, file)))
 
     const named = source.match(/^export\s+(?:async\s+)?function\s+(\w+)/m)
     const isDefault = /^export\s+default\s/m.test(source)
@@ -206,8 +213,23 @@ function inferShape(root: string, dir: string): ComponentShape | null {
   }
 }
 
-/** One level deep plus `<Name>/index.*`. Components nested deeper than that
- *  are someone's private helpers, not the shape of the directory. */
+/**
+ * How a component's file sits in its directory: `{Name}.tsx`,
+ * `{Name}/index.tsx`, or `{Name}/{Name}.tsx`.
+ *
+ * The third was missing. A folder per module holding `Intro/Intro.tsx` beside
+ * its demo is as common as the `index` spelling, and not knowing it made the
+ * whole directory look empty.
+ */
+function layoutOf(dir: string, file: string): string {
+  const ext = extname(file)
+  if (dirname(file) === dir) return `{Name}${ext}`
+  return basename(file) === `index${ext}` ? `{Name}/index${ext}` : `{Name}/{Name}${ext}`
+}
+
+/** One level deep plus `<Name>/index.*` or `<Name>/<Name>.*`. Components nested
+ *  deeper than that are someone's private helpers, not the shape of the
+ *  directory. */
 function componentFiles(dir: string): string[] {
   const out: string[] = []
   let entries: string[]
@@ -230,7 +252,10 @@ function componentFiles(dir: string): string[] {
     if (stat.isFile() && isComponentFile(entry)) {
       out.push(full)
     } else if (stat.isDirectory() && /^[A-Z]/.test(entry)) {
-      for (const inner of ['index.tsx', 'index.jsx', 'index.vue', 'index.ts']) {
+      for (const inner of [
+        'index.tsx', 'index.jsx', 'index.vue', 'index.ts',
+        `${entry}.tsx`, `${entry}.jsx`, `${entry}.vue`,
+      ]) {
         if (existsSync(join(full, inner))) {
           out.push(join(full, inner))
           break
@@ -300,7 +325,8 @@ export function shapeFor(conventions: Conventions, dir: string): ComponentShape 
 
 /** Where a component of this shape goes, and under what name. */
 export function pathFor(shape: ComponentShape, name: string): string {
-  return join(shape.dir, shape.file.replace('{Name}', name))
+  // Every occurrence: `{Name}/{Name}.tsx` names the folder and the file.
+  return join(shape.dir, shape.file.replaceAll('{Name}', name))
 }
 
 function bump(map: Map<string, number>, key: string): [string, number] {
